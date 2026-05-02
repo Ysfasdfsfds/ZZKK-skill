@@ -1,6 +1,14 @@
 # ZZKK-PRD
 
-`ZZKK-PRD` 是一个面向 Claude Code 的本地 skill，用来把一份原始《基础信息表》整理为一份补充后的基础信息表副本，并进一步生成 6 个交付物：
+`ZZKK-PRD` 是一个面向 Claude Code 的本地 skill，用来把一份原始《基础信息表》先补充整理，再生成成套需求文档交付物。
+
+它会先基于用户提供的原始基础信息表：
+
+- 补充 `用户需求描述`
+- 完善 `验收标准`
+- 另存一份新的基础信息表副本
+
+然后继续生成 6 个交付物：
 
 - `<模块名称>-客户需求说明书_<初稿版本号>.docx`
 - `<模块名称>-客户需求说明书_<终稿版本号>.docx`
@@ -9,15 +17,50 @@
 - `<模块名称>-模块级产品需求分析说明书_<终稿版本号>.docx`
 - `<模块名称>-模块级产品需求分析说明书_同级评审会议记录表.xlsx`
 
-在生成这 6 个文件之前，skill 会先基于用户提供的原始基础信息表：
+## 适合什么场景
 
-- 补充 `用户需求描述`
-- 完善 `验收标准`
-- 另存一份新的基础信息表副本
+这个 skill 适合下面这类工作流：
 
-## 适用前提
+- 你已经有一份原始《基础信息表》
+- 你手里有既定格式的客户/产品/评审模板
+- 你希望 Claude Code 按固定流程补充字段并批量生成交付物
+- 你希望保留现有模板格式，而不是重新生成一套全新版式
 
-你需要准备：
+## 快速开始
+
+### 1. 安装到 Claude Code 本地 skills 目录
+
+SSH：
+
+```bash
+mkdir -p ~/.claude/skills
+git clone git@github.com:Ysfasdfsfds/ZZKK-skill.git ~/.claude/skills/ZZKK-PRD
+```
+
+HTTPS：
+
+```bash
+mkdir -p ~/.claude/skills
+git clone https://github.com/Ysfasdfsfds/ZZKK-skill.git ~/.claude/skills/ZZKK-PRD
+```
+
+### 2. 安装 Python 依赖
+
+```bash
+python3 -m pip install -r ~/.claude/skills/ZZKK-PRD/requirements.txt
+```
+
+### 3. 在 Claude Code 中调用 skill
+
+```text
+/ZZKK PRD
+```
+
+安装后建议新开一个 Claude Code 会话，确认 skill 已被正确发现。
+
+## 你需要准备什么
+
+运行前需要准备：
 
 1. 一份原始《基础信息表》
 2. 一个《客户需求说明书》DOCX 模板
@@ -34,49 +77,31 @@
 - `用户需求id`
 - `研发需求id`
 
-同时，为了实际生成文档，还需要这些列：
+为了实际生成文档，还需要这些列：
 
 - `研发需求名称`
 - `研发需求描述`
 
-Skill 会在执行时继续检查：
+Skill 在运行时会继续检查：
 
 - 是否需要新增 `用户需求描述`
-- 是否需要新增或完善 `验收标准`
+- 是否需要新增 `验收标准`
+- 是否需要对已有 `验收标准` 做完善
 
-## 安装方式
+## Skill 会怎么和你交互
 
-先把仓库 clone 到 Claude Code 的本地 skills 目录：
-
-```bash
-mkdir -p ~/.claude/skills
-git clone <your-repo-url> ~/.claude/skills/ZZKK-PRD
-```
-
-然后安装 Python 依赖：
-
-```bash
-python3 -m pip install -r ~/.claude/skills/ZZKK-PRD/requirements.txt
-```
-
-安装完成后，重新打开 Claude Code 会话，或在新会话里确认 skill 已被发现。
-
-## 使用方式
-
-在 Claude Code 中通过 `/ZZKK PRD` 调用这个 skill。
-
-Skill 会主动询问这些内容：
+调用后，skill 会主动询问：
 
 - 原始基础信息表路径
 - 模块编号
 - 模块名称
 - 初稿版本号
 - 终稿版本号
-- 用户提供的 3 个模板文件分别是什么角色
+- 3 个模板文件分别是什么角色
 - 输出目录
 - 是否覆盖现有文件
 
-其中：
+其中有几个固定规则：
 
 - 模板角色 **不能依赖文件名猜测**
 - 默认 **不覆盖** 已存在文件
@@ -147,11 +172,11 @@ python3 ~/.claude/skills/ZZKK-PRD/skill.py verify \
 - 模板中的加粗标签样式需要能够被原结构复用
 - XLSX 评审表模板使用固定单元格位置写入记录编号、项目名、会议日期等信息
 
-如果模板结构和当前实现假定差异过大，生成会失败，或者生成结果需要你再做针对性调整。
+如果模板结构和当前实现假定差异过大，生成可能失败，或者需要你再做针对性调整。
 
 ## 常见问题
 
-### 1. 缺少 `openpyxl`
+### 缺少 `openpyxl`
 
 安装依赖：
 
@@ -159,7 +184,7 @@ python3 ~/.claude/skills/ZZKK-PRD/skill.py verify \
 python3 -m pip install -r ~/.claude/skills/ZZKK-PRD/requirements.txt
 ```
 
-### 2. 缺少工作簿列
+### 缺少工作簿列
 
 请先确认原始基础信息表至少包含：
 
@@ -168,11 +193,11 @@ python3 -m pip install -r ~/.claude/skills/ZZKK-PRD/requirements.txt
 - `研发需求名称`
 - `研发需求描述`
 
-### 3. 模板不兼容
+### 模板不兼容
 
 如果报错显示缺少表格、标签或定位失败，通常说明你的模板结构与当前 skill 假定的不一致，需要调整模板，或修改 `lib/` 下的处理逻辑。
 
-### 4. 输出文件已存在
+### 输出文件已存在
 
 默认不会覆盖。只有在你明确希望覆盖时，才在 CLI 中传入 `--overwrite`，或在 Claude Code 交互里明确允许覆盖。
 
