@@ -211,7 +211,6 @@ def _build_customer_doc_data(config: PipelineConfig, workbook: WorkbookData, ver
     version_display = version_token(version)
     scenarios = []
     requirement_rows = []
-    module_rows = []
     for index, requirement in enumerate(workbook.requirements, start=1):
         scenarios.append(
             CustomerScenario(
@@ -226,55 +225,20 @@ def _build_customer_doc_data(config: PipelineConfig, workbook: WorkbookData, ver
             CustomerRequirementRow(
                 user_requirement_id=requirement.user_requirement_id,
                 title=requirement.title,
-                description=_customer_requirement_description(requirement),
+                description=_customer_requirement_description(requirement, scenario_id=f'S-{index:02d}'),
                 priority=requirement.priority,
                 owner_module=requirement.owner_module,
                 collaborator_module=requirement.collaborator_module,
             )
         )
-        module_rows.append(
-            (
-                f'{config.module_code}-{index:02d}',
-                requirement.owner_module,
-                first_sentence(requirement.user_description or requirement.rd_description) or '支撑该需求能力落地。',
-                '待补充',
-                '待补充',
-                '待补充',
-                version_display,
-            )
-        )
 
-    delivery_rows = [
-        ('1', customer_doc_filename(config.module_name, config.draft_version), 'DOCX', '客户需求初稿'),
-        ('2', customer_doc_filename(config.module_name, config.final_version), 'DOCX', '客户需求终稿'),
-        ('3', customer_review_filename(config.module_name), 'XLSX', '客户需求同级评审记录'),
-        ('4', product_doc_filename(config.module_name, config.draft_version), 'DOCX', '对应产品需求分析输入'),
-    ]
-
-    glossary_rows = _glossary_rows(workbook)
-    reference_rows = [
-        ('输入与依据', f'《{workbook.workbook_path.stem}》'),
-        ('模板与流程', '《客户需求说明书》模板'),
-        ('模板与流程', '《产品需求说明书》模板'),
-        ('模板与流程', '《评审表》模板'),
-        ('标准与规范', '项目既有需求管理与评审流程'),
-    ]
-
-    target_customers = '、'.join(dict.fromkeys(req.customer_type for req in workbook.requirements))
     return CustomerDocData(
         module_name=config.module_name,
         doc_number=customer_doc_number(config.module_code, version),
         version_display=version_display,
         run_date_display=dotted_date(run_date),
-        product_intro=f'{config.module_name}模块围绕工作簿中的 {len(workbook.requirements)} 项需求，覆盖桌面环境高频交互、配置与集成场景，支撑版本内需求收敛与交付。',
-        version_changes=f'{version_display} 聚焦本轮需求条目梳理、场景描述、用户需求分解和交付约束整理。',
-        target_customers=target_customers or '桌面终端用户',
-        module_rows=module_rows,
         scenarios=scenarios,
         requirement_rows=requirement_rows,
-        delivery_rows=delivery_rows,
-        glossary_rows=glossary_rows,
-        reference_rows=reference_rows,
     )
 
 
@@ -353,11 +317,10 @@ def _customer_scenario_description(requirement, *, final: bool) -> str:
     return first_sentence(requirement.user_description) or first_sentence(requirement.rd_description) or f'围绕“{requirement.title}”提供对应场景支撑。'
 
 
-def _customer_requirement_description(requirement) -> str:
+def _customer_requirement_description(requirement, *, scenario_id: str) -> str:
     summary = first_sentence(requirement.user_description) or first_sentence(requirement.rd_description)
-    if summary:
-        return f'{summary} 业务价值：支撑该需求在版本内清晰落地。'
-    return f'围绕“{requirement.title}”完成需求分解与版本内落地。'
+    role_goal = summary or f'用户围绕“{requirement.title}”发起操作，希望核心能力可用且结果清晰。'
+    return f'角色与目标：{role_goal} 业务价值：支撑该需求在版本内清晰落地，并降低理解与执行成本。 归属场景（场景编号）：{scenario_id}'
 
 
 def _product_feature_description(requirement) -> str:
