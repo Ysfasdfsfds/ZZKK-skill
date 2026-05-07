@@ -30,10 +30,17 @@ from lib.docx_ops import (
     render_customer_doc,
     render_product_doc,
 )
+from lib.review_logic import (
+    build_customer_review_plan,
+    build_product_review_plan,
+    customer_requirement_description as review_customer_requirement_description,
+    customer_scenario_description as review_customer_scenario_description,
+    product_quality_rows,
+    product_requirement_details,
+)
 from lib.workbook_reader import (
     WorkbookData,
     enrich_workbook,
-    first_sentence,
     inspect_workbook_headers,
     planned_enriched_workbook_path,
     read_workbook,
@@ -49,12 +56,18 @@ class PipelineConfig:
     review_template: Path
     module_code: str
     module_name: str
+    product_line_code: str
+    product_name: str
     draft_version: str
     final_version: str
     output_dir: Path
     module_product_manager: str
     module_project_manager: str
     reviewers: str
+    rd_owner: str
+    product_owner: str
+    test_owner: str
+    security_owner: str
     qa: str
     run_date: str | None = None
     overwrite: bool = False
@@ -72,6 +85,8 @@ def plan_outputs(config: PipelineConfig) -> dict[str, object]:
     return {
         'module_code': config.module_code,
         'module_name': config.module_name,
+        'product_line_code': config.product_line_code,
+        'product_name': config.product_name,
         'draft_version': config.draft_version,
         'final_version': config.final_version,
         'run_date': run_date,
@@ -80,7 +95,15 @@ def plan_outputs(config: PipelineConfig) -> dict[str, object]:
             'host': config.module_product_manager,
             'scribe': config.module_project_manager,
             'reviewers': config.reviewers,
+            'rd_owner': config.rd_owner,
+            'product_owner': config.product_owner,
+            'test_owner': config.test_owner,
+            'security_owner': config.security_owner,
             'other_people': config.qa,
+        },
+        'doc_number_rules_from_templates': {
+            'customer_doc': '产线名称英文缩写-模块ID-CRS-版本号',
+            'product_doc': '产线名称英文缩写-产品名称-模块ID-PRD-版本号',
         },
         'workbook_preparation': {
             'source_workbook': str(config.workbook),
@@ -90,10 +113,10 @@ def plan_outputs(config: PipelineConfig) -> dict[str, object]:
             'will_add_or_fill': ['用户需求描述', '验收标准'],
         },
         'doc_numbers': {
-            'customer_draft': customer_doc_number(config.module_code, config.draft_version),
-            'customer_final': customer_doc_number(config.module_code, config.final_version),
-            'product_draft': product_doc_number(config.module_code, config.draft_version),
-            'product_final': product_doc_number(config.module_code, config.final_version),
+            'customer_draft': customer_doc_number(config.module_code, config.draft_version, config.product_line_code, config.product_name),
+            'customer_final': customer_doc_number(config.module_code, config.final_version, config.product_line_code, config.product_name),
+            'product_draft': product_doc_number(config.module_code, config.draft_version, config.product_line_code, config.product_name),
+            'product_final': product_doc_number(config.module_code, config.final_version, config.product_line_code, config.product_name),
             'customer_review': customer_review_record_number(config.module_code, run_date),
             'product_review': product_review_record_number(config.module_code, run_date),
         },
@@ -110,6 +133,12 @@ def plan_outputs(config: PipelineConfig) -> dict[str, object]:
             'customer_final_must_match_requirement_scope_of': outputs['customer_draft'].stem,
             'product_review_targets': outputs['product_draft'].stem,
             'product_final_must_match_requirement_scope_of': outputs['product_draft'].stem,
+        },
+        'semantic_review': {
+            'review_sheet_must_not_default_to_no_change': True,
+            'customer_review_perspectives': ['模块产品经理', '产品级产品经理', '安全负责人', '测试负责人'],
+            'product_review_perspectives': ['项目经理', '研发负责人', '安全负责人', '测试负责人'],
+            'final_docs_are_revised_from_review_issues': True,
         },
         'outputs': {name: str(path) for name, path in outputs.items()},
         'existing_outputs': {name: path.exists() for name, path in outputs.items()},
@@ -135,6 +164,27 @@ def run_pipeline(config: PipelineConfig) -> dict[str, object]:
     render_customer_doc(config.customer_template, outputs['customer_draft'], customer_draft)
     render_product_doc(config.product_template, outputs['product_draft'], product_draft)
 
+    customer_review_plan = build_customer_review_plan(
+        module_name=config.module_name,
+        draft_title=outputs['customer_draft'].stem,
+        final_version=config.final_version,
+        workbook=workbook,
+        module_product_manager=config.module_product_manager,
+        product_owner=config.product_owner,
+        test_owner=config.test_owner,
+        security_owner=config.security_owner,
+    )
+    product_review_plan = build_product_review_plan(
+        module_name=config.module_name,
+        draft_title=outputs['product_draft'].stem,
+        final_version=config.final_version,
+        workbook=workbook,
+        module_project_manager=config.module_project_manager,
+        rd_owner=config.rd_owner,
+        test_owner=config.test_owner,
+        security_owner=config.security_owner,
+    )
+
     render_customer_review_sheet(
         config.review_template,
         outputs['customer_review'],
@@ -146,6 +196,7 @@ def run_pipeline(config: PipelineConfig) -> dict[str, object]:
         scribe=config.module_project_manager,
         reviewers=config.reviewers,
         other_people=config.qa,
+        review_plan=customer_review_plan,
     )
 
     customer_final = _build_customer_doc_data(config, workbook, config.final_version, run_date, final=True)
@@ -163,6 +214,7 @@ def run_pipeline(config: PipelineConfig) -> dict[str, object]:
         scribe=config.module_project_manager,
         reviewers=config.reviewers,
         other_people=config.qa,
+        review_plan=product_review_plan,
     )
 
     verification = verify_outputs(config)
@@ -186,10 +238,10 @@ def verify_outputs(config: PipelineConfig) -> dict[str, object]:
     outputs = _output_paths(config)
     strict_review_date = config.run_date is not None
     expected_strings = {
-        'customer_draft': customer_doc_number(config.module_code, config.draft_version),
-        'customer_final': customer_doc_number(config.module_code, config.final_version),
-        'product_draft': product_doc_number(config.module_code, config.draft_version),
-        'product_final': product_doc_number(config.module_code, config.final_version),
+        'customer_draft': customer_doc_number(config.module_code, config.draft_version, config.product_line_code, config.product_name),
+        'customer_final': customer_doc_number(config.module_code, config.final_version, config.product_line_code, config.product_name),
+        'product_draft': product_doc_number(config.module_code, config.draft_version, config.product_line_code, config.product_name),
+        'product_final': product_doc_number(config.module_code, config.final_version, config.product_line_code, config.product_name),
         'customer_review': customer_review_record_number(config.module_code, run_date),
         'product_review': product_review_record_number(config.module_code, run_date),
     }
@@ -230,6 +282,25 @@ def _validate_inputs(config: PipelineConfig) -> None:
     for path in [config.workbook, config.customer_template, config.product_template, config.review_template]:
         if not path.exists():
             raise FileNotFoundError(path)
+    required_text_fields = {
+        'module_code': config.module_code,
+        'module_name': config.module_name,
+        'product_line_code': config.product_line_code,
+        'product_name': config.product_name,
+        'draft_version': config.draft_version,
+        'final_version': config.final_version,
+        'module_product_manager': config.module_product_manager,
+        'module_project_manager': config.module_project_manager,
+        'reviewers': config.reviewers,
+        'rd_owner': config.rd_owner,
+        'product_owner': config.product_owner,
+        'test_owner': config.test_owner,
+        'security_owner': config.security_owner,
+        'qa': config.qa,
+    }
+    missing = [name for name, value in required_text_fields.items() if not value.strip()]
+    if missing:
+        raise ValueError(f"missing required input fields: {', '.join(missing)}")
 
 
 def _output_paths(config: PipelineConfig) -> dict[str, Path]:
@@ -254,23 +325,23 @@ def _build_customer_doc_data(config: PipelineConfig, workbook: WorkbookData, ver
                 customer_type=requirement.customer_type,
                 usage_context=requirement.usage_context,
                 scenario_id=f'S-{index:02d}',
-                description=_customer_scenario_description(requirement, final=final),
+                description=review_customer_scenario_description(requirement, final=final),
             )
         )
         requirement_rows.append(
             CustomerRequirementRow(
                 user_requirement_id=requirement.user_requirement_id,
                 title=requirement.title,
-                description=_customer_requirement_description(requirement, scenario_id=f'S-{index:02d}'),
+                description=review_customer_requirement_description(requirement, scenario_id=f'S-{index:02d}', final=final),
                 priority=requirement.priority,
-                owner_module=requirement.owner_module,
-                collaborator_module=requirement.collaborator_module,
+                owner_module=config.module_name if final else requirement.owner_module,
+                collaborator_module=_customer_collaborator(requirement, final=final),
             )
         )
 
     return CustomerDocData(
         module_name=config.module_name,
-        doc_number=customer_doc_number(config.module_code, version),
+        doc_number=customer_doc_number(config.module_code, version, config.product_line_code, config.product_name),
         version_display=version_display,
         run_date_display=dotted_date(run_date),
         release_note=_customer_release_note(config, final=final, run_date=run_date),
@@ -283,50 +354,36 @@ def _build_product_doc_data(config: PipelineConfig, workbook: WorkbookData, vers
     version_display = version_token(version)
     requirements = []
     for requirement in workbook.requirements:
+        details = product_requirement_details(requirement, final=final)
         requirements.append(
             ProductRequirement(
                 module_name=config.module_name,
                 level='C1',
-                related_module_name='无',
+                related_module_name=details['related_module_name'],
                 parent_module_name='无',
                 chipset_special='/',
                 user_requirement_id=requirement.user_requirement_id,
                 rd_requirement_id=requirement.rd_requirement_id or requirement.sequence_id,
                 priority_marks=_priority_marks(requirement.priority),
                 implement_way='☑ 自研   □ 开源修改 □ 开源引入或第三方',
-                feature_description=_product_feature_description(requirement),
-                related_description='',
-                acceptance=' '.join(part for part in requirement.acceptance.splitlines() if part),
-                input_desc=first_sentence(requirement.user_description or requirement.rd_description) or f'用户围绕“{requirement.title}”发起操作。',
-                process_desc=f'系统围绕“{requirement.title}”执行对应界面展示、状态处理或配置生效流程。',
-                output_desc=f'用户可以围绕“{requirement.title}”稳定完成目标操作，并获得一致反馈。',
-                exception_desc='异常场景下应给出可理解提示，并保持基础能力可用。',
-                layout_desc='沿用现有页面/接口形态，详细图示按研发设计稿和联调结果补充。',
-                quality_desc='兼容性、易用性与可靠性要求遵循当前版本基线。',
+                feature_description=details['feature_description'],
+                related_description=details['related_description'],
+                acceptance=details['acceptance'],
+                input_desc=details['input_desc'],
+                process_desc=details['process_desc'],
+                output_desc=details['output_desc'],
+                exception_desc=details['exception_desc'],
+                layout_desc=details['layout_desc'],
+                quality_desc=details['quality_desc'],
             )
         )
 
-    quality_rows = [
-        ('性能效率', f'{config.module_name}相关功能在高频交互场景下应保持流畅。', '重点关注切换、刷新、配置生效与状态同步时延。'),
-        ('安全性', '接口、配置与入口调整不得突破现有权限边界。', '避免因开放能力或隐藏策略导致越权操作。'),
-        ('可靠性', '连续调用、重复切换和状态频繁变化场景下应保持结果一致。', '异常时需保留基本能力并给出清晰反馈。'),
-        ('兼容性（接口）', '界面能力应兼容当前主题和显示环境；接口能力兼容既有集成方式。', '命名、参数与返回格式保持稳定。'),
-        ('可维护性', '配置项、接口项和状态项应遵循模块现有组织方式。', '便于后续版本继续演进与定位问题。'),
-        ('可移植性', '输出内容应适配项目当前目标版本与交付环境。', '环境切换时不依赖额外人工修正。'),
-        ('易用性', '入口位置、文案和反馈方式应尽量延续既有使用习惯。', '确保用户能快速理解状态并完成目标操作。'),
-    ]
-
-    reference_rows = [
-        ('输入文档', f'《{config.module_name}-客户需求说明书_{config.draft_version}》'),
-        ('依赖的接口契约', ''),
-        ('遵循的标准与规范', '项目既有研发与评审规范'),
-        ('……', ''),
-        ('……', ''),
-    ]
+    quality_rows = product_quality_rows(config.module_name, final=final)
+    reference_rows = _product_reference_rows(config, run_date, final=final)
 
     return ProductDocData(
         module_name=config.module_name,
-        doc_number=product_doc_number(config.module_code, version),
+        doc_number=product_doc_number(config.module_code, version, config.product_line_code, config.product_name),
         version_display=version_display,
         run_date_display=dotted_date(run_date),
         release_note=_product_release_note(config, final=final, run_date=run_date),
@@ -341,6 +398,31 @@ def _build_product_doc_data(config: PipelineConfig, workbook: WorkbookData, vers
     )
 
 
+def _customer_collaborator(requirement, *, final: bool) -> str:
+    if not final:
+        return requirement.collaborator_module
+    return product_requirement_details(requirement, final=True)['related_module_name']
+
+
+def _product_reference_rows(config: PipelineConfig, run_date: str, *, final: bool) -> list[tuple[str, str]]:
+    prepared_workbook = planned_enriched_workbook_path(config.workbook, config.output_dir).name
+    if final:
+        return [
+            ('输入文档', f'《{config.module_name}-客户需求说明书_{config.final_version}》'),
+            ('依赖的接口契约', '按基础信息表中的接口清单、Demo、设计稿、策略说明和研发补充资料持续维护。'),
+            ('遵循的标准与规范', '项目既有研发与评审规范'),
+            ('同级评审记录', f'《{config.module_name}-模块级产品需求分析说明书_同级评审会议记录表》（记录编号：{product_review_record_number(config.module_code, run_date)}）'),
+            ('输入基础表', prepared_workbook),
+        ]
+    return [
+        ('输入文档', f'《{config.module_name}-客户需求说明书_{config.draft_version}》'),
+        ('依赖的接口契约', '待研发补充接口清单、Demo、设计稿或策略说明。'),
+        ('遵循的标准与规范', '项目既有研发与评审规范'),
+        ('同级评审状态', '初稿待同级评审'),
+        ('输入基础表', prepared_workbook),
+    ]
+
+
 def _priority_marks(priority: str) -> str:
     if priority == '高':
         return '☑ 高 □ 中 □ 低'
@@ -351,31 +433,14 @@ def _priority_marks(priority: str) -> str:
 
 def _customer_release_note(config: PipelineConfig, *, final: bool, run_date: str) -> str:
     if final:
-        return f'根据同级评审记录 {customer_review_record_number(config.module_code, run_date)} 由初稿形成终稿'
+        return f'根据同级评审记录 {customer_review_record_number(config.module_code, run_date)} 由初稿形成终稿；补充客户场景差异、用户价值、成功标准及非功能关注点'
     return '初稿，提交同级评审'
 
 
 def _product_release_note(config: PipelineConfig, *, final: bool, run_date: str) -> str:
     if final:
-        return f'根据同级评审记录 {product_review_record_number(config.module_code, run_date)} 由初稿形成终稿'
+        return f'根据同级评审记录 {product_review_record_number(config.module_code, run_date)} 由初稿形成终稿；细化关联模块、处理过程、异常流程、安全与测试验收口径'
     return '初稿，提交同级评审'
-
-
-def _customer_scenario_description(requirement, *, final: bool) -> str:
-    if final:
-        return f'背景：{first_sentence(requirement.user_description) or first_sentence(requirement.rd_description)} 使用目标：围绕“{requirement.title}”提升操作稳定性与体验一致性。 成功标志：{first_sentence(requirement.acceptance) or "能力按预期生效。"}'
-    return first_sentence(requirement.user_description) or first_sentence(requirement.rd_description) or f'围绕“{requirement.title}”提供对应场景支撑。'
-
-
-def _customer_requirement_description(requirement, *, scenario_id: str) -> str:
-    summary = first_sentence(requirement.user_description) or first_sentence(requirement.rd_description)
-    role_goal = summary or f'用户围绕“{requirement.title}”发起操作，希望核心能力可用且结果清晰。'
-    return f'角色与目标：{role_goal} 业务价值：支撑该需求在版本内清晰落地，并降低理解与执行成本。 归属场景（场景编号）：{scenario_id}'
-
-
-def _product_feature_description(requirement) -> str:
-    summary = ' '.join(part for part in requirement.rd_description.splitlines() if part) or first_sentence(requirement.user_description)
-    return f'围绕客户需求 {requirement.user_requirement_id} 与研发需求 {requirement.rd_requirement_id}，落实“{requirement.title}”能力。 {summary}'.strip()
 
 
 def _glossary_rows(workbook: WorkbookData) -> list[tuple[str, str]]:

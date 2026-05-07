@@ -152,6 +152,25 @@ def _ensure_table_data_rows(table: ET.Element, required_total_rows: int) -> None
         table.append(deepcopy(template_row))
 
 
+def _fill_version_record(table: ET.Element, *, run_date: str, version: str, release_note: str, author: str) -> None:
+    rows = _row_cells(table)
+    if len(rows) <= 1:
+        return
+    target_index = 1
+    for index, row in enumerate(rows[1:], start=1):
+        text = ''.join(_cell_text(cell) for cell in row).strip()
+        if text and all(marker in text for marker in ('日期', '版本号', '发布说明', '编写者')):
+            continue
+        target_index = index
+        break
+    if len(rows[target_index]) < 4:
+        return
+    _set_cell_text(rows[target_index][0], run_date)
+    _set_cell_text(rows[target_index][1], version)
+    _set_cell_text(rows[target_index][2], release_note)
+    _set_cell_text(rows[target_index][3], author)
+
+
 def _find_direct_paragraph_index(root: ET.Element, paragraph_text: str) -> int:
     body = root.find('w:body', NS)
     if body is None:
@@ -217,6 +236,23 @@ def _replace_direct_paragraph_text(root: ET.Element, old_text: str, new_text: st
         _append_run(child, new_text, template)
         return True
     return False
+
+
+def _replace_all_direct_paragraph_text(root: ET.Element, old_text: str, new_text: str) -> int:
+    body = root.find('w:body', NS)
+    if body is None:
+        return 0
+    replaced = 0
+    for child in list(body):
+        if child.tag != _qn('p') or _paragraph_text(child) != old_text:
+            continue
+        runs = _text_runs(child)
+        template = runs[0] if runs else None
+        _clear_paragraph(child)
+        if new_text:
+            _append_run(child, new_text, template)
+        replaced += 1
+    return replaced
 
 
 def _replace_following_paragraph(root: ET.Element, heading_text: str, new_text: str) -> bool:
@@ -367,12 +403,13 @@ def render_customer_doc(template_path: Path, output_path: Path, data: CustomerDo
 
     version_tables = _find_all_tables(root, '日期', '版本号', '发布说明', '编写者')
     if version_tables:
-        rows = _row_cells(version_tables[0])
-        if len(rows) > 1 and len(rows[1]) >= 4:
-            _set_cell_text(rows[1][0], data.run_date_display)
-            _set_cell_text(rows[1][1], data.version_display)
-            _set_cell_text(rows[1][2], data.release_note)
-            _set_cell_text(rows[1][3], 'Claude')
+        _fill_version_record(
+            version_tables[0],
+            run_date=data.run_date_display,
+            version=data.version_display,
+            release_note=data.release_note,
+            author='Claude',
+        )
 
     scenario_count = max(1, len(data.scenarios))
     _ensure_repeated_tables_before_heading(
@@ -423,16 +460,30 @@ def render_product_doc(template_path: Path, output_path: Path, data: ProductDocD
     _set_cell_text(doc_number_table.findall('.//w:tc', NS)[0], f'文件编号：{data.doc_number}')
 
     _replace_direct_paragraph_text(root, '桌面环境模块', f'{data.module_name}模块')
+    _replace_direct_paragraph_text(root, '***模块', f'{data.module_name}模块')
+    _replace_direct_paragraph_text(root, 'XX模块', f'{data.module_name}模块')
     _replace_direct_paragraph_text(root, '产品需求分析说明书', '产品需求分析说明书')
+    _replace_direct_paragraph_text(
+        root,
+        '(按项目策划要求，确定3章节内容是否可禅道-产品-研发需求页面直接导出）',
+        '本章节按基础信息表中的研发需求逐项展开，明确功能描述、关联模块、验收标准、输入/过程/输出、异常流程和质量特性。',
+    )
+    _replace_all_direct_paragraph_text(root, '……', '')
+    _replace_direct_paragraph_text(
+        root,
+        '本章节定义的非功能要求，旨在承接并细化《客户需求说明书》（文档编号：[填写]）中“第5章 全局非功能需求”对本模块提出的约束。本模块的所有功能实现与最终交付，必须满足此基线要求。',
+        '本章节承接并细化客户需求说明书中的安全、性能、可靠性、兼容性和易用性要求；本模块所有功能实现与最终交付必须满足该基线。',
+    )
 
     version_tables = _find_all_tables(root, '日期', '版本号', '发布说明', '编写者')
     if version_tables:
-        rows = _row_cells(version_tables[0])
-        if len(rows) > 1 and len(rows[1]) >= 4:
-            _set_cell_text(rows[1][0], data.run_date_display)
-            _set_cell_text(rows[1][1], data.version_display)
-            _set_cell_text(rows[1][2], data.release_note)
-            _set_cell_text(rows[1][3], 'Claude')
+        _fill_version_record(
+            version_tables[0],
+            run_date=data.run_date_display,
+            version=data.version_display,
+            release_note=data.release_note,
+            author='Claude',
+        )
 
     if not _replace_section_block(root, '模块描述', '假设与约束', [
         data.module_description,

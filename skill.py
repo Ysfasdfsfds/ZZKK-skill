@@ -37,12 +37,18 @@ def build_parser() -> argparse.ArgumentParser:
         p.add_argument("--review-template", required=True)
         p.add_argument("--module-code", required=True)
         p.add_argument("--module-name", required=True)
+        p.add_argument("--product-line-code", required=True, help="产线名称英文缩写；用于文档编号前缀")
+        p.add_argument("--product-name", required=True, help="产品名称；用于文档编号前缀")
         p.add_argument("--draft-version", required=True)
         p.add_argument("--final-version", required=True)
         p.add_argument("--output-dir", required=True)
         p.add_argument("--module-product-manager", required=True, help="负责该模块的模块产品经理姓名；写入评审表主持人")
         p.add_argument("--module-project-manager", required=True, help="负责该模块的项目经理；写入评审表书记员")
         p.add_argument("--reviewers", required=True, help="评审员名单，应包括研发负责人、项目经理、产品级产品经理、安全负责人、测试负责人")
+        p.add_argument("--rd-owner", required=True, help="研发负责人姓名；写入评审问题提出人")
+        p.add_argument("--product-owner", required=True, help="产品级产品经理姓名；写入评审问题提出人")
+        p.add_argument("--test-owner", required=True, help="测试负责人姓名；写入评审问题提出人")
+        p.add_argument("--security-owner", required=True, help="安全负责人姓名；写入评审问题提出人")
         p.add_argument("--qa", required=True, help="对应 QA；写入评审表其他人员")
         p.add_argument("--run-date", default=None, help="YYYYMMDD, defaults to today")
 
@@ -67,12 +73,18 @@ def config_from_args(args: argparse.Namespace) -> PipelineConfig:
         review_template=Path(args.review_template).expanduser().resolve(),
         module_code=args.module_code.strip(),
         module_name=args.module_name.strip(),
+        product_line_code=args.product_line_code.strip(),
+        product_name=args.product_name.strip(),
         draft_version=args.draft_version.strip(),
         final_version=args.final_version.strip(),
         output_dir=Path(args.output_dir).expanduser().resolve(),
         module_product_manager=args.module_product_manager.strip(),
         module_project_manager=args.module_project_manager.strip(),
         reviewers=args.reviewers.strip(),
+        rd_owner=args.rd_owner.strip(),
+        product_owner=args.product_owner.strip(),
+        test_owner=args.test_owner.strip(),
+        security_owner=args.security_owner.strip(),
         qa=args.qa.strip(),
         run_date=args.run_date.strip() if args.run_date else None,
         overwrite=getattr(args, "overwrite", False),

@@ -96,12 +96,15 @@ Skill 在运行时会继续检查：
 - 原始基础信息表路径
 - 模块编号
 - 模块名称
+- 产线名称英文缩写
+- 产品名称
 - 初稿版本号
 - 终稿版本号
 - 3 个模板文件分别是什么角色
 - 负责该模块的模块产品经理姓名（评审表主持人）
 - 负责该模块的项目经理（评审表书记员）
 - 评审员名单（应包括研发负责人、项目经理、产品级产品经理、安全负责人、测试负责人）
+- 研发负责人姓名、产品级产品经理姓名、安全负责人姓名、测试负责人姓名（写入评审问题“提出人”）
 - 对应 QA（评审表其他人员）
 - 输出目录
 - 是否覆盖现有文件
@@ -111,6 +114,7 @@ Skill 在运行时会继续检查：
 - 模板角色 **不能依赖文件名猜测**
 - 默认 **不覆盖** 已存在文件
 - 原始基础信息表会先被补充、另存，再用于最终生成
+- 文件编号以模板为准：客户说明书为 `产线名称英文缩写-模块ID-CRS-版本号`，产品说明书为 `产线名称英文缩写-产品名称-模块ID-PRD-版本号`
 - 初稿、评审表、终稿必须形成流程闭环：先生成初稿，再基于初稿生成评审表，最后根据评审表形成终稿；终稿基于同一份补充后的基础信息表生成，并覆盖同一批需求 ID
 
 ## 手动 CLI 调试
@@ -127,11 +131,17 @@ python3 ~/.claude/skills/ZZKK-PRD/skill.py plan \
   --review-template "<评审表模板路径>" \
   --module-code "<模块编号>" \
   --module-name "<模块名称>" \
+  --product-line-code "<产线名称英文缩写>" \
+  --product-name "<产品名称>" \
   --draft-version "<初稿版本号>" \
   --final-version "<终稿版本号>" \
   --module-product-manager "<模块产品经理>" \
   --module-project-manager "<模块项目经理>" \
   --reviewers "<评审员名单>" \
+  --rd-owner "<研发负责人>" \
+  --product-owner "<产品级产品经理>" \
+  --test-owner "<测试负责人>" \
+  --security-owner "<安全负责人>" \
   --qa "<对应QA>" \
   --output-dir "<输出目录>"
 ```
@@ -146,11 +156,17 @@ python3 ~/.claude/skills/ZZKK-PRD/skill.py run \
   --review-template "<评审表模板路径>" \
   --module-code "<模块编号>" \
   --module-name "<模块名称>" \
+  --product-line-code "<产线名称英文缩写>" \
+  --product-name "<产品名称>" \
   --draft-version "<初稿版本号>" \
   --final-version "<终稿版本号>" \
   --module-product-manager "<模块产品经理>" \
   --module-project-manager "<模块项目经理>" \
   --reviewers "<评审员名单>" \
+  --rd-owner "<研发负责人>" \
+  --product-owner "<产品级产品经理>" \
+  --test-owner "<测试负责人>" \
+  --security-owner "<安全负责人>" \
   --qa "<对应QA>" \
   --output-dir "<输出目录>"
 ```
@@ -171,11 +187,17 @@ python3 ~/.claude/skills/ZZKK-PRD/skill.py verify \
   --review-template "<评审表模板路径>" \
   --module-code "<模块编号>" \
   --module-name "<模块名称>" \
+  --product-line-code "<产线名称英文缩写>" \
+  --product-name "<产品名称>" \
   --draft-version "<初稿版本号>" \
   --final-version "<终稿版本号>" \
   --module-product-manager "<模块产品经理>" \
   --module-project-manager "<模块项目经理>" \
   --reviewers "<评审员名单>" \
+  --rd-owner "<研发负责人>" \
+  --product-owner "<产品级产品经理>" \
+  --test-owner "<测试负责人>" \
+  --security-owner "<安全负责人>" \
   --qa "<对应QA>" \
   --output-dir "<输出目录>"
 ```
