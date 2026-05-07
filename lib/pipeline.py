@@ -52,6 +52,10 @@ class PipelineConfig:
     draft_version: str
     final_version: str
     output_dir: Path
+    module_product_manager: str
+    module_project_manager: str
+    reviewers: str
+    qa: str
     run_date: str | None = None
     overwrite: bool = False
 
@@ -72,6 +76,12 @@ def plan_outputs(config: PipelineConfig) -> dict[str, object]:
         'final_version': config.final_version,
         'run_date': run_date,
         'required_source_headers': ['用户需求id', '研发需求id', '研发需求名称', '研发需求描述'],
+        'review_record_people': {
+            'host': config.module_product_manager,
+            'scribe': config.module_project_manager,
+            'reviewers': config.reviewers,
+            'other_people': config.qa,
+        },
         'workbook_preparation': {
             'source_workbook': str(config.workbook),
             'prepared_workbook': str(prepared_workbook),
@@ -86,6 +96,20 @@ def plan_outputs(config: PipelineConfig) -> dict[str, object]:
             'product_final': product_doc_number(config.module_code, config.final_version),
             'customer_review': customer_review_record_number(config.module_code, run_date),
             'product_review': product_review_record_number(config.module_code, run_date),
+        },
+        'content_correspondence': {
+            'generation_flow': [
+                'customer_draft',
+                'customer_review',
+                'customer_final',
+                'product_draft',
+                'product_review',
+                'product_final',
+            ],
+            'customer_review_targets': outputs['customer_draft'].stem,
+            'customer_final_must_match_requirement_scope_of': outputs['customer_draft'].stem,
+            'product_review_targets': outputs['product_draft'].stem,
+            'product_final_must_match_requirement_scope_of': outputs['product_draft'].stem,
         },
         'outputs': {name: str(path) for name, path in outputs.items()},
         'existing_outputs': {name: path.exists() for name, path in outputs.items()},
@@ -106,14 +130,10 @@ def run_pipeline(config: PipelineConfig) -> dict[str, object]:
     workbook = read_workbook(preparation.output_path)
 
     customer_draft = _build_customer_doc_data(config, workbook, config.draft_version, run_date, final=False)
-    customer_final = _build_customer_doc_data(config, workbook, config.final_version, run_date, final=True)
     product_draft = _build_product_doc_data(config, workbook, config.draft_version, run_date, final=False)
-    product_final = _build_product_doc_data(config, workbook, config.final_version, run_date, final=True)
 
     render_customer_doc(config.customer_template, outputs['customer_draft'], customer_draft)
-    render_customer_doc(config.customer_template, outputs['customer_final'], customer_final)
     render_product_doc(config.product_template, outputs['product_draft'], product_draft)
-    render_product_doc(config.product_template, outputs['product_final'], product_final)
 
     render_customer_review_sheet(
         config.review_template,
@@ -122,7 +142,16 @@ def run_pipeline(config: PipelineConfig) -> dict[str, object]:
         project_name=workbook.platform_branch or 'UKUI4.22',
         work_product_title=outputs['customer_draft'].stem,
         meeting_date=iso_date(run_date),
+        host=config.module_product_manager,
+        scribe=config.module_project_manager,
+        reviewers=config.reviewers,
+        other_people=config.qa,
     )
+
+    customer_final = _build_customer_doc_data(config, workbook, config.final_version, run_date, final=True)
+    product_final = _build_product_doc_data(config, workbook, config.final_version, run_date, final=True)
+    render_customer_doc(config.customer_template, outputs['customer_final'], customer_final)
+    render_product_doc(config.product_template, outputs['product_final'], product_final)
     render_product_review_sheet(
         config.review_template,
         outputs['product_review'],
@@ -130,6 +159,10 @@ def run_pipeline(config: PipelineConfig) -> dict[str, object]:
         project_name=workbook.project_name or '银河麒麟桌面操作系统V11 SP1',
         work_product_title=outputs['product_draft'].stem,
         meeting_date=run_date,
+        host=config.module_product_manager,
+        scribe=config.module_project_manager,
+        reviewers=config.reviewers,
+        other_people=config.qa,
     )
 
     verification = verify_outputs(config)
@@ -182,10 +215,13 @@ def verify_outputs(config: PipelineConfig) -> dict[str, object]:
             else:
                 item['identifier_present'] = review_prefixes[name] in text
         results[name] = item
+    correspondence = _verify_content_correspondence(config, outputs)
     return {
         'run_date': run_date,
         'all_outputs_present': all(item['exists'] for item in results.values()),
         'all_identifiers_present': all(item['identifier_present'] for item in results.values()),
+        'all_content_correspondence_passed': correspondence['passed'],
+        'content_correspondence': correspondence,
         'outputs': results,
     }
 
@@ -237,6 +273,7 @@ def _build_customer_doc_data(config: PipelineConfig, workbook: WorkbookData, ver
         doc_number=customer_doc_number(config.module_code, version),
         version_display=version_display,
         run_date_display=dotted_date(run_date),
+        release_note=_customer_release_note(config, final=final, run_date=run_date),
         scenarios=scenarios,
         requirement_rows=requirement_rows,
     )
@@ -292,6 +329,7 @@ def _build_product_doc_data(config: PipelineConfig, workbook: WorkbookData, vers
         doc_number=product_doc_number(config.module_code, version),
         version_display=version_display,
         run_date_display=dotted_date(run_date),
+        release_note=_product_release_note(config, final=final, run_date=run_date),
         module_description=f'{config.module_name}模块属于桌面环境核心组成部分，负责承接本轮需求中与终端界面、交互入口、配置体验及集成能力相关的产品落地。',
         tech_constraints='需遵循现有桌面环境、设置框架和接口约束，优先复用既有实现方式。',
         resource_constraints='需结合当前版本节奏与研发资源推进，优先保证高价值需求按期落地。',
@@ -309,6 +347,18 @@ def _priority_marks(priority: str) -> str:
     if priority == '低':
         return '□ 高 □ 中 ☑ 低'
     return '□ 高 ☑ 中 □ 低'
+
+
+def _customer_release_note(config: PipelineConfig, *, final: bool, run_date: str) -> str:
+    if final:
+        return f'根据同级评审记录 {customer_review_record_number(config.module_code, run_date)} 由初稿形成终稿'
+    return '初稿，提交同级评审'
+
+
+def _product_release_note(config: PipelineConfig, *, final: bool, run_date: str) -> str:
+    if final:
+        return f'根据同级评审记录 {product_review_record_number(config.module_code, run_date)} 由初稿形成终稿'
+    return '初稿，提交同级评审'
 
 
 def _customer_scenario_description(requirement, *, final: bool) -> str:
@@ -367,3 +417,87 @@ def _read_xlsx_text(path: Path) -> str:
             if cell.value is not None:
                 values.append(str(cell.value))
     return '\n'.join(values)
+
+
+def _verify_content_correspondence(config: PipelineConfig, outputs: dict[str, Path]) -> dict[str, object]:
+    prepared_workbook = planned_enriched_workbook_path(config.workbook, config.output_dir)
+    result: dict[str, object] = {
+        'passed': False,
+        'prepared_workbook': str(prepared_workbook),
+        'prepared_workbook_exists': prepared_workbook.exists(),
+        'customer_review_targets_draft': False,
+        'customer_review_targets_final': False,
+        'product_review_targets_draft': False,
+        'product_review_targets_final': False,
+        'customer_final_mentions_review_record': False,
+        'product_final_mentions_review_record': False,
+        'missing_customer_requirement_ids_in_draft': [],
+        'missing_customer_requirement_ids_in_final': [],
+        'missing_product_requirement_ids_in_draft': [],
+        'missing_product_requirement_ids_in_final': [],
+    }
+    required_outputs = [
+        outputs['customer_draft'],
+        outputs['customer_final'],
+        outputs['customer_review'],
+        outputs['product_draft'],
+        outputs['product_final'],
+        outputs['product_review'],
+    ]
+    if not prepared_workbook.exists() or not all(path.exists() for path in required_outputs):
+        return result
+
+    try:
+        workbook = read_workbook(prepared_workbook)
+    except Exception as exc:  # pragma: no cover - returned for CLI diagnostics
+        result['error'] = str(exc)
+        return result
+
+    customer_ids = [
+        requirement.user_requirement_id
+        for requirement in workbook.requirements
+        if requirement.user_requirement_id
+    ]
+    product_ids = [
+        requirement.rd_requirement_id or requirement.sequence_id
+        for requirement in workbook.requirements
+        if requirement.rd_requirement_id or requirement.sequence_id
+    ]
+    result['requirement_count'] = len(workbook.requirements)
+
+    customer_draft_text = _read_docx_text(outputs['customer_draft'])
+    customer_final_text = _read_docx_text(outputs['customer_final'])
+    product_draft_text = _read_docx_text(outputs['product_draft'])
+    product_final_text = _read_docx_text(outputs['product_final'])
+    customer_review_text = _read_xlsx_text(outputs['customer_review'])
+    product_review_text = _read_xlsx_text(outputs['product_review'])
+
+    result['customer_review_targets_draft'] = outputs['customer_draft'].stem in customer_review_text
+    result['customer_review_targets_final'] = outputs['customer_final'].stem in customer_review_text
+    result['product_review_targets_draft'] = outputs['product_draft'].stem in product_review_text
+    result['product_review_targets_final'] = outputs['product_final'].stem in product_review_text
+    result['customer_final_mentions_review_record'] = f'MT-PR-A-{config.module_code}-CRS-' in customer_final_text
+    result['product_final_mentions_review_record'] = f'MT-PR-A-{config.module_code}-PRD-' in product_final_text
+
+    result['missing_customer_requirement_ids_in_draft'] = _missing_tokens(customer_draft_text, customer_ids)
+    result['missing_customer_requirement_ids_in_final'] = _missing_tokens(customer_final_text, customer_ids)
+    result['missing_product_requirement_ids_in_draft'] = _missing_tokens(product_draft_text, product_ids)
+    result['missing_product_requirement_ids_in_final'] = _missing_tokens(product_final_text, product_ids)
+
+    result['passed'] = (
+        result['customer_review_targets_draft']
+        and not result['customer_review_targets_final']
+        and result['product_review_targets_draft']
+        and not result['product_review_targets_final']
+        and result['customer_final_mentions_review_record']
+        and result['product_final_mentions_review_record']
+        and not result['missing_customer_requirement_ids_in_draft']
+        and not result['missing_customer_requirement_ids_in_final']
+        and not result['missing_product_requirement_ids_in_draft']
+        and not result['missing_product_requirement_ids_in_final']
+    )
+    return result
+
+
+def _missing_tokens(text: str, tokens: list[str]) -> list[str]:
+    return [token for token in tokens if token and token not in text]

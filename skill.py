@@ -40,6 +40,10 @@ def build_parser() -> argparse.ArgumentParser:
         p.add_argument("--draft-version", required=True)
         p.add_argument("--final-version", required=True)
         p.add_argument("--output-dir", required=True)
+        p.add_argument("--module-product-manager", required=True, help="负责该模块的模块产品经理姓名；写入评审表主持人")
+        p.add_argument("--module-project-manager", required=True, help="负责该模块的项目经理；写入评审表书记员")
+        p.add_argument("--reviewers", required=True, help="评审员名单，应包括研发负责人、项目经理、产品级产品经理、安全负责人、测试负责人")
+        p.add_argument("--qa", required=True, help="对应 QA；写入评审表其他人员")
         p.add_argument("--run-date", default=None, help="YYYYMMDD, defaults to today")
 
     plan = sub.add_parser("plan", help="Show computed filenames and identifiers")
@@ -66,6 +70,10 @@ def config_from_args(args: argparse.Namespace) -> PipelineConfig:
         draft_version=args.draft_version.strip(),
         final_version=args.final_version.strip(),
         output_dir=Path(args.output_dir).expanduser().resolve(),
+        module_product_manager=args.module_product_manager.strip(),
+        module_project_manager=args.module_project_manager.strip(),
+        reviewers=args.reviewers.strip(),
+        qa=args.qa.strip(),
         run_date=args.run_date.strip() if args.run_date else None,
         overwrite=getattr(args, "overwrite", False),
     )

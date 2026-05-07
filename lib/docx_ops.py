@@ -312,6 +312,7 @@ class CustomerDocData:
     doc_number: str
     version_display: str
     run_date_display: str
+    release_note: str
     scenarios: list[CustomerScenario]
     requirement_rows: list[CustomerRequirementRow]
 
@@ -344,6 +345,7 @@ class ProductDocData:
     doc_number: str
     version_display: str
     run_date_display: str
+    release_note: str
     module_description: str
     tech_constraints: str
     resource_constraints: str
@@ -369,7 +371,7 @@ def render_customer_doc(template_path: Path, output_path: Path, data: CustomerDo
         if len(rows) > 1 and len(rows[1]) >= 4:
             _set_cell_text(rows[1][0], data.run_date_display)
             _set_cell_text(rows[1][1], data.version_display)
-            _set_cell_text(rows[1][2], '自动生成')
+            _set_cell_text(rows[1][2], data.release_note)
             _set_cell_text(rows[1][3], 'Claude')
 
     scenario_count = max(1, len(data.scenarios))
@@ -429,7 +431,7 @@ def render_product_doc(template_path: Path, output_path: Path, data: ProductDocD
         if len(rows) > 1 and len(rows[1]) >= 4:
             _set_cell_text(rows[1][0], data.run_date_display)
             _set_cell_text(rows[1][1], data.version_display)
-            _set_cell_text(rows[1][2], '自动生成')
+            _set_cell_text(rows[1][2], data.release_note)
             _set_cell_text(rows[1][3], 'Claude')
 
     if not _replace_section_block(root, '模块描述', '假设与约束', [
