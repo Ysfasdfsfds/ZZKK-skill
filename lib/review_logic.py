@@ -56,7 +56,7 @@ def build_customer_review_plan(
             '需求描述列',
             '部分条目主要由研发需求名称和描述扩展，用户角色、业务价值和验收关注点不足，难以支撑客户侧理解和确认。',
             '终稿在用户需求描述表补充“角色与目标/业务价值/验收关注/归属场景”，使客户诉求与基础信息表闭环。',
-            module_product_manager,
+            _join_people(product_owner, test_owner),
         ),
         ReviewIssue(
             '3',

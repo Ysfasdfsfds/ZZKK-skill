@@ -87,6 +87,26 @@ def _set_cell_text(cell: ET.Element, text: str) -> None:
     _set_cell_runs(cell, [(text, template)])
 
 
+def _set_doc_number_table(root: ET.Element, doc_number: str) -> None:
+    table = _find_first_table(root, '文件编号：')
+    replacement = f'文件编号：{doc_number}'
+    for row in table.findall('w:tr', NS):
+        cells = row.findall('w:tc', NS)
+        for cell in cells:
+            if '文件编号：' in _cell_text(cell):
+                _set_cell_text(cell, replacement)
+                for sibling in cells:
+                    if sibling is not cell:
+                        _set_cell_text(sibling, '')
+                return
+    cells = table.findall('.//w:tc', NS)
+    if not cells:
+        raise ValueError('doc number table structure is incompatible')
+    _set_cell_text(cells[0], replacement)
+    for cell in cells[1:]:
+        _set_cell_text(cell, '')
+
+
 def _non_bold_template_run(run: ET.Element | None) -> ET.Element | None:
     if run is None:
         return None
@@ -396,8 +416,7 @@ def render_customer_doc(template_path: Path, output_path: Path, data: CustomerDo
     with zipfile.ZipFile(template_path) as archive:
         root = ET.fromstring(archive.read('word/document.xml'))
 
-    doc_number_table = _find_first_table(root, '文件编号：')
-    _set_cell_text(doc_number_table.findall('.//w:tc', NS)[0], f'文件编号：{data.doc_number}')
+    _set_doc_number_table(root, data.doc_number)
 
     _replace_direct_paragraph_text(root, 'XX模块', f'{data.module_name}模块')
 
@@ -456,8 +475,7 @@ def render_product_doc(template_path: Path, output_path: Path, data: ProductDocD
     with zipfile.ZipFile(template_path) as archive:
         root = ET.fromstring(archive.read('word/document.xml'))
 
-    doc_number_table = _find_first_table(root, '文件编号：')
-    _set_cell_text(doc_number_table.findall('.//w:tc', NS)[0], f'文件编号：{data.doc_number}')
+    _set_doc_number_table(root, data.doc_number)
 
     _replace_direct_paragraph_text(root, '桌面环境模块', f'{data.module_name}模块')
     _replace_direct_paragraph_text(root, '***模块', f'{data.module_name}模块')
