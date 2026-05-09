@@ -361,7 +361,7 @@ def _build_product_doc_data(config: PipelineConfig, workbook: WorkbookData, vers
                 level='C1',
                 related_module_name=details['related_module_name'],
                 parent_module_name='无',
-                chipset_special='/',
+                chipset_special='无',
                 user_requirement_id=requirement.user_requirement_id,
                 rd_requirement_id=requirement.rd_requirement_id or requirement.sequence_id,
                 priority_marks=_priority_marks(requirement.priority),
