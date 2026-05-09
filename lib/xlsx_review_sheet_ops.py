@@ -48,7 +48,8 @@ def render_product_review_sheet(
     *,
     record_number: str,
     project_name: str,
-    work_product_title: str,
+    work_product_name: str,
+    work_product_review_scope: str,
     meeting_date: str,
     host: str,
     scribe: str,
@@ -60,8 +61,8 @@ def render_product_review_sheet(
     sheet = workbook.active
     sheet.cell(row=2, column=6).value = record_number
     sheet.cell(row=3, column=5).value = project_name
-    sheet.cell(row=4, column=5).value = f'《{work_product_title}》'
-    sheet.cell(row=5, column=5).value = '模块描述、假设与约束、功能详述、非功能要求、术语、参考资料及需求编号一致性检查'
+    sheet.cell(row=4, column=5).value = work_product_name
+    sheet.cell(row=5, column=5).value = work_product_review_scope
     sheet.cell(row=5, column=11).value = '设计阶段'
     sheet.cell(row=6, column=5).value = meeting_date
     sheet.cell(row=6, column=9).value = 2

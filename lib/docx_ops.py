@@ -191,6 +191,26 @@ def _fill_version_record(table: ET.Element, *, run_date: str, version: str, rele
     _set_cell_text(rows[target_index][3], author)
 
 
+def _fill_version_records(table: ET.Element, records: list[tuple[str, str, str, str]]) -> None:
+    required_total_rows = max(2, len(records) + 1)
+    _ensure_table_data_rows(table, required_total_rows)
+    rows = _row_cells(table)
+    for index, row in enumerate(rows[1:], start=0):
+        values = records[index] if index < len(records) else ('', '', '', '')
+        for col_index, value in enumerate(values[: len(row)]):
+            _set_cell_text(row[col_index], value)
+
+
+def _set_product_approval_table(root: ET.Element, rows_data: list[tuple[str, str]]) -> None:
+    table = _find_first_table(root, '拟 制', '审 核', '批 准', '日 期')
+    rows = _row_cells(table)
+    for row_index, (person, date_text) in enumerate(rows_data):
+        if row_index >= len(rows) or len(rows[row_index]) < 4:
+            continue
+        _set_cell_text(rows[row_index][1], person)
+        _set_cell_text(rows[row_index][3], date_text)
+
+
 def _find_direct_paragraph_index(root: ET.Element, paragraph_text: str) -> int:
     body = root.find('w:body', NS)
     if body is None:
@@ -402,6 +422,8 @@ class ProductDocData:
     version_display: str
     run_date_display: str
     release_note: str
+    approval_rows: list[tuple[str, str]]
+    version_rows: list[tuple[str, str, str, str]]
     module_description: str
     tech_constraints: str
     resource_constraints: str
@@ -476,6 +498,7 @@ def render_product_doc(template_path: Path, output_path: Path, data: ProductDocD
         root = ET.fromstring(archive.read('word/document.xml'))
 
     _set_doc_number_table(root, data.doc_number)
+    _set_product_approval_table(root, data.approval_rows)
 
     _replace_direct_paragraph_text(root, '桌面环境模块', f'{data.module_name}模块')
     _replace_direct_paragraph_text(root, '***模块', f'{data.module_name}模块')
@@ -495,13 +518,7 @@ def render_product_doc(template_path: Path, output_path: Path, data: ProductDocD
 
     version_tables = _find_all_tables(root, '日期', '版本号', '发布说明', '编写者')
     if version_tables:
-        _fill_version_record(
-            version_tables[0],
-            run_date=data.run_date_display,
-            version=data.version_display,
-            release_note=data.release_note,
-            author='Claude',
-        )
+        _fill_version_records(version_tables[0], data.version_rows)
 
     if not _replace_section_block(root, '模块描述', '假设与约束', [
         data.module_description,

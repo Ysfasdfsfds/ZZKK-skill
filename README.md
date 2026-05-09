@@ -100,6 +100,9 @@ Skill 在运行时会继续检查：
 - 产品名称
 - 初稿版本号
 - 终稿版本号
+- 产品需求说明书初稿撰写时间（不限制格式，按输入原样写入）
+- 产品需求说明书评审表时间（不限制格式，按输入原样写入）
+- 产品需求说明书终稿撰写时间（不限制格式，按输入原样写入）
 - 3 个模板文件分别是什么角色
 - 负责该模块的模块产品经理姓名（评审表主持人）
 - 负责该模块的项目经理（评审表书记员）
@@ -116,6 +119,7 @@ Skill 在运行时会继续检查：
 - 原始基础信息表会先被补充、另存，再用于最终生成
 - 文件编号以模板为准：客户说明书为 `产线名称英文缩写-模块ID-CRS-版本号`，产品说明书为 `产线名称英文缩写-产品名称-模块ID-PRD-版本号`
 - “无/不涉及”类占位统一输出 `无`，不得用 `/` 代替
+- 产品需求说明书相关日期不做格式转换，按用户输入原样写入；产品评审表项目名称和工作产品写 `银河麒麟桌面操作系统<产品名称>`，工作产品评审规模写对应初稿文件名，项目阶段写 `设计阶段`
 - 初稿、评审表、终稿必须形成流程闭环：先生成初稿，再基于初稿生成评审表，最后根据评审表形成终稿；终稿基于同一份补充后的基础信息表生成，并覆盖同一批需求 ID
 
 ## 手动 CLI 调试
@@ -136,6 +140,9 @@ python3 ~/.claude/skills/ZZKK-PRD/skill.py plan \
   --product-name "<产品名称>" \
   --draft-version "<初稿版本号>" \
   --final-version "<终稿版本号>" \
+  --product-draft-date "<产品需求说明书初稿撰写时间>" \
+  --product-review-date "<产品需求说明书评审表时间>" \
+  --product-final-date "<产品需求说明书终稿撰写时间>" \
   --module-product-manager "<模块产品经理>" \
   --module-project-manager "<模块项目经理>" \
   --reviewers "<评审员名单>" \
@@ -161,6 +168,9 @@ python3 ~/.claude/skills/ZZKK-PRD/skill.py run \
   --product-name "<产品名称>" \
   --draft-version "<初稿版本号>" \
   --final-version "<终稿版本号>" \
+  --product-draft-date "<产品需求说明书初稿撰写时间>" \
+  --product-review-date "<产品需求说明书评审表时间>" \
+  --product-final-date "<产品需求说明书终稿撰写时间>" \
   --module-product-manager "<模块产品经理>" \
   --module-project-manager "<模块项目经理>" \
   --reviewers "<评审员名单>" \
@@ -192,6 +202,9 @@ python3 ~/.claude/skills/ZZKK-PRD/skill.py verify \
   --product-name "<产品名称>" \
   --draft-version "<初稿版本号>" \
   --final-version "<终稿版本号>" \
+  --product-draft-date "<产品需求说明书初稿撰写时间>" \
+  --product-review-date "<产品需求说明书评审表时间>" \
+  --product-final-date "<产品需求说明书终稿撰写时间>" \
   --module-product-manager "<模块产品经理>" \
   --module-project-manager "<模块项目经理>" \
   --reviewers "<评审员名单>" \

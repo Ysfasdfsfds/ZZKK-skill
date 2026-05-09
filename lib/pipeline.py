@@ -60,6 +60,9 @@ class PipelineConfig:
     product_name: str
     draft_version: str
     final_version: str
+    product_draft_date: str
+    product_review_date: str
+    product_final_date: str
     output_dir: Path
     module_product_manager: str
     module_project_manager: str
@@ -90,6 +93,12 @@ def plan_outputs(config: PipelineConfig) -> dict[str, object]:
         'draft_version': config.draft_version,
         'final_version': config.final_version,
         'run_date': run_date,
+        'product_document_dates': {
+            'product_draft_date': config.product_draft_date,
+            'product_review_date': config.product_review_date,
+            'product_final_date': config.product_final_date,
+            'date_format_rule': '按用户输入原样写入，不做格式转换',
+        },
         'required_source_headers': ['用户需求id', '研发需求id', '研发需求名称', '研发需求描述'],
         'review_record_people': {
             'host': config.module_product_manager,
@@ -207,9 +216,10 @@ def run_pipeline(config: PipelineConfig) -> dict[str, object]:
         config.review_template,
         outputs['product_review'],
         record_number=product_review_record_number(config.module_code, run_date),
-        project_name=workbook.project_name or '银河麒麟桌面操作系统V11 SP1',
-        work_product_title=outputs['product_draft'].stem,
-        meeting_date=run_date,
+        project_name=_review_product_name(config),
+        work_product_name=_review_product_name(config),
+        work_product_review_scope=outputs['product_draft'].name,
+        meeting_date=config.product_review_date,
         host=config.module_product_manager,
         scribe=config.module_project_manager,
         reviewers=config.reviewers,
@@ -289,6 +299,9 @@ def _validate_inputs(config: PipelineConfig) -> None:
         'product_name': config.product_name,
         'draft_version': config.draft_version,
         'final_version': config.final_version,
+        'product_draft_date': config.product_draft_date,
+        'product_review_date': config.product_review_date,
+        'product_final_date': config.product_final_date,
         'module_product_manager': config.module_product_manager,
         'module_project_manager': config.module_project_manager,
         'reviewers': config.reviewers,
@@ -387,6 +400,8 @@ def _build_product_doc_data(config: PipelineConfig, workbook: WorkbookData, vers
         version_display=version_display,
         run_date_display=dotted_date(run_date),
         release_note=_product_release_note(config, final=final, run_date=run_date),
+        approval_rows=_product_approval_rows(config, final=final),
+        version_rows=_product_version_rows(config, final=final),
         module_description=f'{config.module_name}模块属于桌面环境核心组成部分，负责承接本轮需求中与终端界面、交互入口、配置体验及集成能力相关的产品落地。',
         tech_constraints='需遵循现有桌面环境、设置框架和接口约束，优先复用既有实现方式。',
         resource_constraints='需结合当前版本节奏与研发资源推进，优先保证高价值需求按期落地。',
@@ -402,6 +417,47 @@ def _customer_collaborator(requirement, *, final: bool) -> str:
     if not final:
         return requirement.collaborator_module
     return product_requirement_details(requirement, final=True)['related_module_name']
+
+
+def _product_approval_rows(config: PipelineConfig, *, final: bool) -> list[tuple[str, str]]:
+    if final:
+        return [
+            (config.module_product_manager, config.product_draft_date),
+            (config.reviewers, config.product_review_date),
+            (config.module_project_manager, config.product_final_date),
+        ]
+    return [
+        (config.module_product_manager, config.product_draft_date),
+        ('', ''),
+        ('', ''),
+    ]
+
+
+def _product_version_rows(config: PipelineConfig, *, final: bool) -> list[tuple[str, str, str, str]]:
+    draft_row = (
+        config.product_draft_date,
+        version_token(config.draft_version),
+        '初稿',
+        config.module_product_manager,
+    )
+    if not final:
+        return [draft_row]
+    return [
+        draft_row,
+        (
+            config.product_final_date,
+            version_token(config.final_version),
+            '终稿',
+            config.module_product_manager,
+        ),
+    ]
+
+
+def _review_product_name(config: PipelineConfig) -> str:
+    name = config.product_name.strip()
+    if name.startswith('银河麒麟'):
+        return name
+    return f'银河麒麟桌面操作系统{name}'
 
 
 def _product_reference_rows(config: PipelineConfig, run_date: str, *, final: bool) -> list[tuple[str, str]]:
@@ -496,6 +552,9 @@ def _verify_content_correspondence(config: PipelineConfig, outputs: dict[str, Pa
         'product_review_targets_final': False,
         'customer_final_mentions_review_record': False,
         'product_final_mentions_review_record': False,
+        'product_draft_date_present': False,
+        'product_final_dates_present': False,
+        'product_review_fields_present': False,
         'missing_customer_requirement_ids_in_draft': [],
         'missing_customer_requirement_ids_in_final': [],
         'missing_product_requirement_ids_in_draft': [],
@@ -543,6 +602,15 @@ def _verify_content_correspondence(config: PipelineConfig, outputs: dict[str, Pa
     result['product_review_targets_final'] = outputs['product_final'].stem in product_review_text
     result['customer_final_mentions_review_record'] = f'MT-PR-A-{config.module_code}-CRS-' in customer_final_text
     result['product_final_mentions_review_record'] = f'MT-PR-A-{config.module_code}-PRD-' in product_final_text
+    result['product_draft_date_present'] = config.product_draft_date in product_draft_text
+    result['product_final_dates_present'] = all(
+        value in product_final_text
+        for value in [config.product_draft_date, config.product_review_date, config.product_final_date]
+    )
+    result['product_review_fields_present'] = all(
+        value in product_review_text
+        for value in [_review_product_name(config), outputs['product_draft'].name, '设计阶段', config.product_review_date]
+    )
 
     result['missing_customer_requirement_ids_in_draft'] = _missing_tokens(customer_draft_text, customer_ids)
     result['missing_customer_requirement_ids_in_final'] = _missing_tokens(customer_final_text, customer_ids)
@@ -556,6 +624,9 @@ def _verify_content_correspondence(config: PipelineConfig, outputs: dict[str, Pa
         and not result['product_review_targets_final']
         and result['customer_final_mentions_review_record']
         and result['product_final_mentions_review_record']
+        and result['product_draft_date_present']
+        and result['product_final_dates_present']
+        and result['product_review_fields_present']
         and not result['missing_customer_requirement_ids_in_draft']
         and not result['missing_customer_requirement_ids_in_final']
         and not result['missing_product_requirement_ids_in_draft']

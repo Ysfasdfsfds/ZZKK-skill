@@ -41,6 +41,9 @@ def build_parser() -> argparse.ArgumentParser:
         p.add_argument("--product-name", required=True, help="产品名称；用于文档编号前缀")
         p.add_argument("--draft-version", required=True)
         p.add_argument("--final-version", required=True)
+        p.add_argument("--product-draft-date", required=True, help="产品需求说明书初稿撰写时间；按用户输入原样写入")
+        p.add_argument("--product-review-date", required=True, help="产品需求说明书评审表时间；按用户输入原样写入")
+        p.add_argument("--product-final-date", required=True, help="产品需求说明书终稿撰写时间；按用户输入原样写入")
         p.add_argument("--output-dir", required=True)
         p.add_argument("--module-product-manager", required=True, help="负责该模块的模块产品经理姓名；写入评审表主持人")
         p.add_argument("--module-project-manager", required=True, help="负责该模块的项目经理；写入评审表书记员")
@@ -77,6 +80,9 @@ def config_from_args(args: argparse.Namespace) -> PipelineConfig:
         product_name=args.product_name.strip(),
         draft_version=args.draft_version.strip(),
         final_version=args.final_version.strip(),
+        product_draft_date=args.product_draft_date.strip(),
+        product_review_date=args.product_review_date.strip(),
+        product_final_date=args.product_final_date.strip(),
         output_dir=Path(args.output_dir).expanduser().resolve(),
         module_product_manager=args.module_product_manager.strip(),
         module_project_manager=args.module_project_manager.strip(),
