@@ -83,6 +83,8 @@ class PipelineConfig:
 
 def plan_outputs(config: PipelineConfig) -> dict[str, object]:
     run_date = ensure_run_date(config.run_date)
+    customer_review_date_token = ensure_run_date(config.customer_review_date)
+    product_review_date_token = ensure_run_date(config.product_review_date)
     _validate_inputs(config)
     outputs = _output_paths(config)
     workbook_check = inspect_workbook_headers(config.workbook)
@@ -137,8 +139,8 @@ def plan_outputs(config: PipelineConfig) -> dict[str, object]:
             'customer_final': customer_doc_number(config.module_code, config.final_version, config.product_line_code, config.product_name),
             'product_draft': product_doc_number(config.module_code, config.draft_version, config.product_line_code, config.product_name),
             'product_final': product_doc_number(config.module_code, config.final_version, config.product_line_code, config.product_name),
-            'customer_review': customer_review_record_number(config.module_code, run_date),
-            'product_review': product_review_record_number(config.module_code, run_date),
+            'customer_review': customer_review_record_number(config.module_code, customer_review_date_token),
+            'product_review': product_review_record_number(config.module_code, product_review_date_token),
         },
         'content_correspondence': {
             'generation_flow': [
@@ -167,6 +169,8 @@ def plan_outputs(config: PipelineConfig) -> dict[str, object]:
 
 def run_pipeline(config: PipelineConfig) -> dict[str, object]:
     run_date = ensure_run_date(config.run_date)
+    customer_review_date_token = ensure_run_date(config.customer_review_date)
+    product_review_date_token = ensure_run_date(config.product_review_date)
     _validate_inputs(config)
     outputs = _output_paths(config)
     prepared_workbook_path = planned_enriched_workbook_path(config.workbook, config.output_dir)
@@ -208,34 +212,37 @@ def run_pipeline(config: PipelineConfig) -> dict[str, object]:
     render_customer_review_sheet(
         config.review_template,
         outputs['customer_review'],
-        record_number=customer_review_record_number(config.module_code, run_date),
-        project_name=workbook.platform_branch or 'UKUI4.22',
-        work_product_title=outputs['customer_draft'].stem,
+        record_number=customer_review_record_number(config.module_code, customer_review_date_token),
+        project_name=_review_product_name(config),
+        work_product_name=_review_product_name(config),
+        work_product_review_scope=f'《{outputs["customer_draft"].stem}》',
         meeting_date=config.customer_review_date,
         host=config.module_product_manager,
         scribe=config.module_project_manager,
         reviewers=config.reviewers,
         other_people=config.qa,
         review_plan=customer_review_plan,
+        revision_reference=f'《{outputs["customer_draft"].stem}》',
     )
 
-    customer_final = _build_customer_doc_data(config, workbook, config.final_version, run_date, final=True)
-    product_final = _build_product_doc_data(config, workbook, config.final_version, run_date, final=True)
+    customer_final = _build_customer_doc_data(config, workbook, config.final_version, customer_review_date_token, final=True)
+    product_final = _build_product_doc_data(config, workbook, config.final_version, product_review_date_token, final=True)
     render_customer_doc(config.customer_template, outputs['customer_final'], customer_final)
     render_product_doc(config.product_template, outputs['product_final'], product_final)
     render_product_review_sheet(
         config.review_template,
         outputs['product_review'],
-        record_number=product_review_record_number(config.module_code, run_date),
+        record_number=product_review_record_number(config.module_code, product_review_date_token),
         project_name=_review_product_name(config),
         work_product_name=_review_product_name(config),
-        work_product_review_scope=outputs['product_draft'].name,
+        work_product_review_scope=f'《{outputs["product_draft"].stem}》',
         meeting_date=config.product_review_date,
         host=config.module_product_manager,
         scribe=config.module_project_manager,
         reviewers=config.reviewers,
         other_people=config.qa,
         review_plan=product_review_plan,
+        revision_reference=f'《{outputs["product_draft"].stem}》',
     )
 
     verification = verify_outputs(config)
@@ -256,6 +263,8 @@ def run_pipeline(config: PipelineConfig) -> dict[str, object]:
 
 def verify_outputs(config: PipelineConfig) -> dict[str, object]:
     run_date = ensure_run_date(config.run_date)
+    customer_review_date_token = ensure_run_date(config.customer_review_date)
+    product_review_date_token = ensure_run_date(config.product_review_date)
     outputs = _output_paths(config)
     strict_review_date = config.run_date is not None
     expected_strings = {
@@ -263,8 +272,8 @@ def verify_outputs(config: PipelineConfig) -> dict[str, object]:
         'customer_final': customer_doc_number(config.module_code, config.final_version, config.product_line_code, config.product_name),
         'product_draft': product_doc_number(config.module_code, config.draft_version, config.product_line_code, config.product_name),
         'product_final': product_doc_number(config.module_code, config.final_version, config.product_line_code, config.product_name),
-        'customer_review': customer_review_record_number(config.module_code, run_date),
-        'product_review': product_review_record_number(config.module_code, run_date),
+        'customer_review': customer_review_record_number(config.module_code, customer_review_date_token),
+        'product_review': product_review_record_number(config.module_code, product_review_date_token),
     }
     review_prefixes = {
         'customer_review': f'MT-PR-A-{config.module_code}-CRS-',
@@ -422,7 +431,7 @@ def _build_product_doc_data(config: PipelineConfig, workbook: WorkbookData, vers
             )
         )
 
-    quality_rows = product_quality_rows(config.module_name, final=final)
+    quality_rows = product_quality_rows(config.module_name, final=final, requirements=workbook.requirements)
     reference_rows = _product_reference_rows(config, run_date, final=final)
 
     return ProductDocData(
@@ -542,20 +551,41 @@ def _priority_marks(priority: str) -> str:
 
 
 def _glossary_rows(workbook: WorkbookData) -> list[tuple[str, str]]:
+    haystack = '\n'.join(
+        '\n'.join(
+            [
+                requirement.title,
+                requirement.rd_description,
+                requirement.user_description,
+                requirement.acceptance,
+                requirement.keywords,
+            ]
+        )
+        for requirement in workbook.requirements
+    )
     rows: list[tuple[str, str]] = []
-    rows.append((workbook.platform_branch or 'UKUI4.22', '本次需求归属的平台或分支标识。'))
-    seen = set()
+    glossary_rules = [
+        (('ki18n', 'KI18N'), 'ki18n', '银河麒麟桌面操作系统中的多语言基础组件，本次需求要求对其开展重构优化，并保证重构后通用能力无缺失、无偏差。'),
+        (('国际化', 'i18n', 'I18N'), '国际化（i18n）', '软件在架构、资源和接口层面支持多语言、多地区适配的能力，是本次多语言组件重构的核心目标之一。'),
+        (('本地化', 'l10n', 'L10N'), '本地化（l10n）', '针对具体语言、地区和使用习惯进行翻译、格式、排序、区域数据等适配的过程。'),
+        (('本地化文本', '文本处理', '多语言文本'), '本地化文本处理', '对多语言字符串、翻译资源、显示文本和相关格式进行加载、转换、展示与一致性处理的能力。'),
+        (('地域', '地区', '时区'), '地域与时区数据', '用于支持不同地区日期、时间、区域格式、时区信息等展示与处理的数据集合。'),
+        (('基础组件', '操作系统基础组件'), '操作系统基础组件', '为上层桌面应用和系统能力提供公共支撑的底层组件，本次需求关注其安全性、稳定性和可替换能力。'),
+        (('供应链安全',), '供应链安全', '通过组件重构、来源可控和能力替代降低外部依赖风险，提升基础组件交付和维护的安全保障能力。'),
+        (('自主可控',), '自主可控', '关键基础组件具备可维护、可演进和可替代能力，减少对不可控外部实现的依赖。'),
+        (('性能',), '性能', '组件在多语言资源加载、地域数据处理和文本处理等场景下的响应效率与资源占用表现。'),
+        (('稳定性',), '稳定性', '组件在持续运行、异常输入和多场景调用下保持功能结果一致、不中断核心能力的质量属性。'),
+    ]
+    for keywords, term, definition in glossary_rules:
+        if any(keyword in haystack for keyword in keywords):
+            rows.append((term, definition))
+
     for requirement in workbook.requirements:
-        if requirement.owner_module not in seen:
-            seen.add(requirement.owner_module)
-            rows.append((requirement.owner_module, f'与“{requirement.title}”相关的主责能力域。'))
         if len(rows) >= 10:
             break
-    rows.extend([
-        ('D-Bus', '系统组件之间及第三方客户端进行状态获取和控制调用的常见方式。'),
-        ('FTP', '文件传输协议相关远程访问场景。'),
-        ('UTF-8', '常见字符编码格式。'),
-    ])
+        if requirement.title:
+            rows.append((requirement.title, '本次基础信息表中的研发需求名称，用于界定当前产品需求分析说明书的需求范围。'))
+
     deduped: list[tuple[str, str]] = []
     used = set()
     for key, value in rows:
@@ -666,7 +696,7 @@ def _verify_content_correspondence(config: PipelineConfig, outputs: dict[str, Pa
     )
     result['product_review_fields_present'] = all(
         value in product_review_text
-        for value in [_review_product_name(config), outputs['product_draft'].name, '设计阶段', config.product_review_date]
+        for value in [_review_product_name(config), f'《{outputs["product_draft"].stem}》', '设计阶段', config.product_review_date]
     )
     forbidden_review_phrases = ['无需整改', '无需处理', '无待解决问题', '无遗留待解决问题']
     result['review_sheets_avoid_placeholder_conclusions'] = not any(

@@ -135,22 +135,24 @@ def _set_cell_solid_borders(cell: ET.Element) -> None:
 
 def _set_doc_number_table(root: ET.Element, doc_number: str) -> None:
     table = _find_first_table(root, '文件编号：')
-    replacement = f'文件编号：{doc_number}'
     for row in table.findall('w:tr', NS):
         cells = row.findall('w:tc', NS)
-        for cell in cells:
+        for index, cell in enumerate(cells):
             if '文件编号：' in _cell_text(cell):
-                _set_cell_text(cell, replacement)
-                for sibling in cells:
-                    if sibling is not cell:
-                        _set_cell_text(sibling, '')
+                _set_cell_text(cell, '文件编号：')
+                if index + 1 < len(cells):
+                    _set_cell_text(cells[index + 1], doc_number)
+                else:
+                    _set_cell_text(cell, f'文件编号：{doc_number}')
                 return
     cells = table.findall('.//w:tc', NS)
     if not cells:
         raise ValueError('doc number table structure is incompatible')
-    _set_cell_text(cells[0], replacement)
-    for cell in cells[1:]:
-        _set_cell_text(cell, '')
+    _set_cell_text(cells[0], '文件编号：')
+    if len(cells) > 1:
+        _set_cell_text(cells[1], doc_number)
+    else:
+        _set_cell_text(cells[0], f'文件编号：{doc_number}')
 
 
 def _non_bold_template_run(run: ET.Element | None) -> ET.Element | None:
@@ -686,6 +688,7 @@ def render_product_doc(template_path: Path, output_path: Path, data: ProductDocD
             _set_cell_text(quality_rows[row_index][col_index], value)
 
     glossary_table = _find_first_table(root, '术语/缩写', '定义/解释')
+    _ensure_table_data_rows(glossary_table, max(2, len(data.glossary_rows) + 1))
     glossary_rows = _row_cells(glossary_table)
     for index in range(1, len(glossary_rows)):
         values = data.glossary_rows[index - 1] if index - 1 < len(data.glossary_rows) else ('', '')
