@@ -70,7 +70,7 @@ def build_customer_review_plan(
     ]
     return ReviewPlan(
         issues=issues,
-        pending_problem='评审意见已修订闭环，无遗留待解决问题。',
+        pending_problem='评审意见已全部按终稿修订闭环。',
         pending_solution=f'对应 {final_version} 终稿已按上述评审意见完成修订，问题状态均为关闭。',
         conclusion=(
             f'本次评审从产品、研发、安全和测试视角发现 {len(issues)} 项需完善意见。'
@@ -125,7 +125,7 @@ def build_product_review_plan(
     ]
     return ReviewPlan(
         issues=issues,
-        pending_problem='评审意见已修订闭环，无遗留待解决问题。',
+        pending_problem='评审意见已全部按终稿修订闭环。',
         pending_solution=f'对应 {final_version} 终稿已按上述评审意见完成修订，问题状态均为关闭。',
         conclusion=(
             f'本次评审从项目、研发、安全和测试视角发现 {len(issues)} 项需完善意见。'

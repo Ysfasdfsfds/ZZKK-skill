@@ -7,6 +7,9 @@ import xml.etree.ElementTree as ET
 
 from openpyxl import load_workbook
 
+W_NS = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
+NS = {'w': W_NS}
+
 from lib.doc_numbering import (
     customer_doc_filename,
     customer_doc_number,
@@ -14,7 +17,6 @@ from lib.doc_numbering import (
     customer_review_record_number,
     dotted_date,
     ensure_run_date,
-    iso_date,
     product_doc_filename,
     product_doc_number,
     product_review_filename,
@@ -60,6 +62,9 @@ class PipelineConfig:
     product_name: str
     draft_version: str
     final_version: str
+    customer_draft_date: str
+    customer_review_date: str
+    customer_final_date: str
     product_draft_date: str
     product_review_date: str
     product_final_date: str
@@ -93,6 +98,12 @@ def plan_outputs(config: PipelineConfig) -> dict[str, object]:
         'draft_version': config.draft_version,
         'final_version': config.final_version,
         'run_date': run_date,
+        'customer_document_dates': {
+            'customer_draft_date': config.customer_draft_date,
+            'customer_review_date': config.customer_review_date,
+            'customer_final_date': config.customer_final_date,
+            'date_format_rule': '按用户输入原样写入，不做格式转换',
+        },
         'product_document_dates': {
             'product_draft_date': config.product_draft_date,
             'product_review_date': config.product_review_date,
@@ -200,7 +211,7 @@ def run_pipeline(config: PipelineConfig) -> dict[str, object]:
         record_number=customer_review_record_number(config.module_code, run_date),
         project_name=workbook.platform_branch or 'UKUI4.22',
         work_product_title=outputs['customer_draft'].stem,
-        meeting_date=iso_date(run_date),
+        meeting_date=config.customer_review_date,
         host=config.module_product_manager,
         scribe=config.module_project_manager,
         reviewers=config.reviewers,
@@ -299,6 +310,9 @@ def _validate_inputs(config: PipelineConfig) -> None:
         'product_name': config.product_name,
         'draft_version': config.draft_version,
         'final_version': config.final_version,
+        'customer_draft_date': config.customer_draft_date,
+        'customer_review_date': config.customer_review_date,
+        'customer_final_date': config.customer_final_date,
         'product_draft_date': config.product_draft_date,
         'product_review_date': config.product_review_date,
         'product_final_date': config.product_final_date,
@@ -332,13 +346,19 @@ def _build_customer_doc_data(config: PipelineConfig, workbook: WorkbookData, ver
     scenarios = []
     requirement_rows = []
     for index, requirement in enumerate(workbook.requirements, start=1):
+        scenario_description = review_customer_scenario_description(requirement, final=final)
+        if final and index == 1:
+            scenario_description = (
+                f'{scenario_description} '
+                f'评审追踪：根据同级评审记录 {customer_review_record_number(config.module_code, run_date)} 由初稿形成终稿。'
+            )
         scenarios.append(
             CustomerScenario(
                 scenario_name=requirement.scenario_name,
                 customer_type=requirement.customer_type,
                 usage_context=requirement.usage_context,
                 scenario_id=f'S-{index:02d}',
-                description=review_customer_scenario_description(requirement, final=final),
+                description=scenario_description,
             )
         )
         requirement_rows.append(
@@ -356,8 +376,19 @@ def _build_customer_doc_data(config: PipelineConfig, workbook: WorkbookData, ver
         module_name=config.module_name,
         doc_number=customer_doc_number(config.module_code, version, config.product_line_code, config.product_name),
         version_display=version_display,
-        run_date_display=dotted_date(run_date),
-        release_note=_customer_release_note(config, final=final, run_date=run_date),
+        approval_rows=_approval_rows(
+            config,
+            final=final,
+            draft_date=config.customer_draft_date,
+            review_date=config.customer_review_date,
+            final_date=config.customer_final_date,
+        ),
+        version_rows=_version_rows(
+            config,
+            final=final,
+            draft_date=config.customer_draft_date,
+            final_date=config.customer_final_date,
+        ),
         scenarios=scenarios,
         requirement_rows=requirement_rows,
     )
@@ -399,9 +430,19 @@ def _build_product_doc_data(config: PipelineConfig, workbook: WorkbookData, vers
         doc_number=product_doc_number(config.module_code, version, config.product_line_code, config.product_name),
         version_display=version_display,
         run_date_display=dotted_date(run_date),
-        release_note=_product_release_note(config, final=final, run_date=run_date),
-        approval_rows=_product_approval_rows(config, final=final),
-        version_rows=_product_version_rows(config, final=final),
+        approval_rows=_approval_rows(
+            config,
+            final=final,
+            draft_date=config.product_draft_date,
+            review_date=config.product_review_date,
+            final_date=config.product_final_date,
+        ),
+        version_rows=_version_rows(
+            config,
+            final=final,
+            draft_date=config.product_draft_date,
+            final_date=config.product_final_date,
+        ),
         module_description=f'{config.module_name}模块属于桌面环境核心组成部分，负责承接本轮需求中与终端界面、交互入口、配置体验及集成能力相关的产品落地。',
         tech_constraints='需遵循现有桌面环境、设置框架和接口约束，优先复用既有实现方式。',
         resource_constraints='需结合当前版本节奏与研发资源推进，优先保证高价值需求按期落地。',
@@ -419,23 +460,36 @@ def _customer_collaborator(requirement, *, final: bool) -> str:
     return product_requirement_details(requirement, final=True)['related_module_name']
 
 
-def _product_approval_rows(config: PipelineConfig, *, final: bool) -> list[tuple[str, str]]:
+def _approval_rows(
+    config: PipelineConfig,
+    *,
+    final: bool,
+    draft_date: str,
+    review_date: str,
+    final_date: str,
+) -> list[tuple[str, str]]:
     if final:
         return [
-            (config.module_product_manager, config.product_draft_date),
-            (config.reviewers, config.product_review_date),
-            (config.module_project_manager, config.product_final_date),
+            (config.module_product_manager, draft_date),
+            (config.reviewers, review_date),
+            (config.module_project_manager, final_date),
         ]
     return [
-        (config.module_product_manager, config.product_draft_date),
+        (config.module_product_manager, draft_date),
         ('', ''),
         ('', ''),
     ]
 
 
-def _product_version_rows(config: PipelineConfig, *, final: bool) -> list[tuple[str, str, str, str]]:
+def _version_rows(
+    config: PipelineConfig,
+    *,
+    final: bool,
+    draft_date: str,
+    final_date: str,
+) -> list[tuple[str, str, str, str]]:
     draft_row = (
-        config.product_draft_date,
+        draft_date,
         version_token(config.draft_version),
         '初稿',
         config.module_product_manager,
@@ -445,7 +499,7 @@ def _product_version_rows(config: PipelineConfig, *, final: bool) -> list[tuple[
     return [
         draft_row,
         (
-            config.product_final_date,
+            final_date,
             version_token(config.final_version),
             '终稿',
             config.module_product_manager,
@@ -485,18 +539,6 @@ def _priority_marks(priority: str) -> str:
     if priority == '低':
         return '□ 高 □ 中 ☑ 低'
     return '□ 高 ☑ 中 □ 低'
-
-
-def _customer_release_note(config: PipelineConfig, *, final: bool, run_date: str) -> str:
-    if final:
-        return f'根据同级评审记录 {customer_review_record_number(config.module_code, run_date)} 由初稿形成终稿；补充客户场景差异、用户价值、成功标准及非功能关注点'
-    return '初稿，提交同级评审'
-
-
-def _product_release_note(config: PipelineConfig, *, final: bool, run_date: str) -> str:
-    if final:
-        return f'根据同级评审记录 {product_review_record_number(config.module_code, run_date)} 由初稿形成终稿；细化关联模块、处理过程、异常流程、安全与测试验收口径'
-    return '初稿，提交同级评审'
 
 
 def _glossary_rows(workbook: WorkbookData) -> list[tuple[str, str]]:
@@ -552,9 +594,15 @@ def _verify_content_correspondence(config: PipelineConfig, outputs: dict[str, Pa
         'product_review_targets_final': False,
         'customer_final_mentions_review_record': False,
         'product_final_mentions_review_record': False,
+        'customer_draft_date_present': False,
+        'customer_final_dates_present': False,
+        'customer_review_fields_present': False,
         'product_draft_date_present': False,
         'product_final_dates_present': False,
         'product_review_fields_present': False,
+        'review_sheets_avoid_placeholder_conclusions': False,
+        'layout_checks_passed': False,
+        'layout_checks': {},
         'missing_customer_requirement_ids_in_draft': [],
         'missing_customer_requirement_ids_in_final': [],
         'missing_product_requirement_ids_in_draft': [],
@@ -602,6 +650,15 @@ def _verify_content_correspondence(config: PipelineConfig, outputs: dict[str, Pa
     result['product_review_targets_final'] = outputs['product_final'].stem in product_review_text
     result['customer_final_mentions_review_record'] = f'MT-PR-A-{config.module_code}-CRS-' in customer_final_text
     result['product_final_mentions_review_record'] = f'MT-PR-A-{config.module_code}-PRD-' in product_final_text
+    result['customer_draft_date_present'] = config.customer_draft_date in customer_draft_text
+    result['customer_final_dates_present'] = all(
+        value in customer_final_text
+        for value in [config.customer_draft_date, config.customer_review_date, config.customer_final_date]
+    )
+    result['customer_review_fields_present'] = all(
+        value in customer_review_text
+        for value in [outputs['customer_draft'].stem, config.customer_review_date]
+    )
     result['product_draft_date_present'] = config.product_draft_date in product_draft_text
     result['product_final_dates_present'] = all(
         value in product_final_text
@@ -611,11 +668,18 @@ def _verify_content_correspondence(config: PipelineConfig, outputs: dict[str, Pa
         value in product_review_text
         for value in [_review_product_name(config), outputs['product_draft'].name, '设计阶段', config.product_review_date]
     )
+    forbidden_review_phrases = ['无需整改', '无需处理', '无待解决问题', '无遗留待解决问题']
+    result['review_sheets_avoid_placeholder_conclusions'] = not any(
+        phrase in customer_review_text or phrase in product_review_text
+        for phrase in forbidden_review_phrases
+    )
 
     result['missing_customer_requirement_ids_in_draft'] = _missing_tokens(customer_draft_text, customer_ids)
     result['missing_customer_requirement_ids_in_final'] = _missing_tokens(customer_final_text, customer_ids)
     result['missing_product_requirement_ids_in_draft'] = _missing_tokens(product_draft_text, product_ids)
     result['missing_product_requirement_ids_in_final'] = _missing_tokens(product_final_text, product_ids)
+    result['layout_checks'] = _verify_docx_layout_structure(config, outputs, len(workbook.requirements))
+    result['layout_checks_passed'] = all(result['layout_checks'].values())
 
     result['passed'] = (
         result['customer_review_targets_draft']
@@ -624,9 +688,14 @@ def _verify_content_correspondence(config: PipelineConfig, outputs: dict[str, Pa
         and not result['product_review_targets_final']
         and result['customer_final_mentions_review_record']
         and result['product_final_mentions_review_record']
+        and result['customer_draft_date_present']
+        and result['customer_final_dates_present']
+        and result['customer_review_fields_present']
         and result['product_draft_date_present']
         and result['product_final_dates_present']
         and result['product_review_fields_present']
+        and result['review_sheets_avoid_placeholder_conclusions']
+        and result['layout_checks_passed']
         and not result['missing_customer_requirement_ids_in_draft']
         and not result['missing_customer_requirement_ids_in_final']
         and not result['missing_product_requirement_ids_in_draft']
@@ -637,3 +706,110 @@ def _verify_content_correspondence(config: PipelineConfig, outputs: dict[str, Pa
 
 def _missing_tokens(text: str, tokens: list[str]) -> list[str]:
     return [token for token in tokens if token and token not in text]
+
+
+def _verify_docx_layout_structure(config: PipelineConfig, outputs: dict[str, Path], requirement_count: int) -> dict[str, bool]:
+    return {
+        'customer_draft_version_rows': _docx_version_row_count(outputs['customer_draft']) == 1,
+        'customer_final_version_rows': _docx_version_row_count(outputs['customer_final']) == 2,
+        'product_draft_version_rows': _docx_version_row_count(outputs['product_draft']) == 1,
+        'product_final_version_rows': _docx_version_row_count(outputs['product_final']) == 2,
+        'customer_draft_version_table_preserves_template_rows': _docx_version_data_row_count(outputs['customer_draft']) >= 1,
+        'customer_final_version_table_preserves_template_rows': _docx_version_data_row_count(outputs['customer_final']) >= 2,
+        'product_draft_version_table_preserves_template_rows': _docx_version_data_row_count(outputs['product_draft']) >= 1,
+        'product_final_version_table_preserves_template_rows': _docx_version_data_row_count(outputs['product_final']) >= 2,
+        'customer_draft_version_rows_renderable': _docx_version_rows_without_vertical_merge(outputs['customer_draft']),
+        'customer_final_version_rows_renderable': _docx_version_rows_without_vertical_merge(outputs['customer_final']),
+        'product_draft_version_rows_renderable': _docx_version_rows_without_vertical_merge(outputs['product_draft']),
+        'product_final_version_rows_renderable': _docx_version_rows_without_vertical_merge(outputs['product_final']),
+        'product_draft_no_extra_requirement_tables': _docx_direct_table_count(outputs['product_draft'], ('模块名称', '功能描述：', '验收标准：')) == requirement_count,
+        'product_final_no_extra_requirement_tables': _docx_direct_table_count(outputs['product_final'], ('模块名称', '功能描述：', '验收标准：')) == requirement_count,
+        'product_draft_module_description_not_pushed_by_blanks': _docx_blank_paragraphs_before_heading(outputs['product_draft'], '模块描述') <= 1,
+        'product_final_module_description_not_pushed_by_blanks': _docx_blank_paragraphs_before_heading(outputs['product_final'], '模块描述') <= 1,
+        'product_draft_nonfunctional_not_pushed_by_blanks': _docx_blank_paragraphs_before_heading(outputs['product_draft'], '模块新增非功能详述') <= 1,
+        'product_final_nonfunctional_not_pushed_by_blanks': _docx_blank_paragraphs_before_heading(outputs['product_final'], '模块新增非功能详述') <= 1,
+    }
+
+
+def _docx_root(path: Path) -> ET.Element:
+    with zipfile.ZipFile(path) as archive:
+        return ET.fromstring(archive.read('word/document.xml'))
+
+
+def _docx_direct_body_children(path: Path) -> list[ET.Element]:
+    body = _docx_root(path).find('w:body', NS)
+    return list(body) if body is not None else []
+
+
+def _docx_element_text(element: ET.Element) -> str:
+    return ''.join(node.text or '' for node in element.findall('.//w:t', NS)).strip()
+
+
+def _docx_version_row_count(path: Path) -> int:
+    root = _docx_root(path)
+    for table in root.findall('.//w:tbl', NS):
+        text = _docx_element_text(table)
+        if not all(marker in text for marker in ['日期', '版本号', '发布说明', '编写者']):
+            continue
+        count = 0
+        for row in table.findall('w:tr', NS)[1:]:
+            row_text = _docx_element_text(row)
+            if '初稿' in row_text or '终稿' in row_text:
+                count += 1
+        return count
+    return 0
+
+
+def _docx_version_data_row_count(path: Path) -> int:
+    root = _docx_root(path)
+    for table in root.findall('.//w:tbl', NS):
+        text = _docx_element_text(table)
+        if all(marker in text for marker in ['日期', '版本号', '发布说明', '编写者']):
+            return max(0, len(table.findall('w:tr', NS)) - 1)
+    return 0
+
+
+def _docx_version_rows_without_vertical_merge(path: Path) -> bool:
+    root = _docx_root(path)
+    for table in root.findall('.//w:tbl', NS):
+        text = _docx_element_text(table)
+        if not all(marker in text for marker in ['日期', '版本号', '发布说明', '编写者']):
+            continue
+        for row in table.findall('w:tr', NS):
+            if not _docx_element_text(row):
+                continue
+            for cell in row.findall('w:tc', NS):
+                props = cell.find('w:tcPr', NS)
+                if props is not None and props.find('w:vMerge', NS) is not None:
+                    return False
+        return True
+    return False
+
+
+def _docx_direct_table_count(path: Path, markers: tuple[str, ...]) -> int:
+    return sum(
+        1
+        for child in _docx_direct_body_children(path)
+        if child.tag == f'{{{W_NS}}}tbl' and all(marker in _docx_element_text(child) for marker in markers)
+    )
+
+
+def _docx_blank_paragraphs_before_heading(path: Path, heading: str) -> int:
+    children = _docx_direct_body_children(path)
+    heading_index = next(
+        (
+            index
+            for index, child in enumerate(children)
+            if child.tag == f'{{{W_NS}}}p' and _docx_element_text(child) == heading
+        ),
+        None,
+    )
+    if heading_index is None:
+        return 0
+    count = 0
+    for child in reversed(children[:heading_index]):
+        if child.tag == f'{{{W_NS}}}p' and _docx_element_text(child) == '':
+            count += 1
+            continue
+        break
+    return count

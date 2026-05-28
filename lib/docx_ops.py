@@ -87,6 +87,52 @@ def _set_cell_text(cell: ET.Element, text: str) -> None:
     _set_cell_runs(cell, [(text, template)])
 
 
+def _set_paragraph_alignment(paragraph: ET.Element, value: str) -> None:
+    props = paragraph.find('w:pPr', NS)
+    if props is None:
+        props = ET.Element(_qn('pPr'))
+        paragraph.insert(0, props)
+    jc = props.find('w:jc', NS)
+    if jc is None:
+        jc = ET.SubElement(props, _qn('jc'))
+    jc.set(_qn('val'), value)
+
+
+def _set_cell_text_centered(cell: ET.Element, text: str) -> None:
+    _set_cell_text(cell, text)
+    for paragraph in _paragraphs(cell):
+        _set_paragraph_alignment(paragraph, 'center')
+    _set_cell_vertical_alignment(cell, 'center')
+
+
+def _set_cell_vertical_alignment(cell: ET.Element, value: str) -> None:
+    props = cell.find('w:tcPr', NS)
+    if props is None:
+        props = ET.Element(_qn('tcPr'))
+        cell.insert(0, props)
+    align = props.find('w:vAlign', NS)
+    if align is None:
+        align = ET.SubElement(props, _qn('vAlign'))
+    align.set(_qn('val'), value)
+
+
+def _set_cell_solid_borders(cell: ET.Element) -> None:
+    props = cell.find('w:tcPr', NS)
+    if props is None:
+        props = ET.Element(_qn('tcPr'))
+        cell.insert(0, props)
+    borders = props.find('w:tcBorders', NS)
+    if borders is not None:
+        props.remove(borders)
+    borders = ET.SubElement(props, _qn('tcBorders'))
+    for side in ('top', 'left', 'bottom', 'right'):
+        border = ET.SubElement(borders, _qn(side))
+        border.set(_qn('val'), 'single')
+        border.set(_qn('color'), '000000')
+        border.set(_qn('sz'), '4')
+        border.set(_qn('space'), '0')
+
+
 def _set_doc_number_table(root: ET.Element, doc_number: str) -> None:
     table = _find_first_table(root, '文件编号：')
     replacement = f'文件编号：{doc_number}'
@@ -172,33 +218,34 @@ def _ensure_table_data_rows(table: ET.Element, required_total_rows: int) -> None
         table.append(deepcopy(template_row))
 
 
-def _fill_version_record(table: ET.Element, *, run_date: str, version: str, release_note: str, author: str) -> None:
-    rows = _row_cells(table)
-    if len(rows) <= 1:
-        return
-    target_index = 1
-    for index, row in enumerate(rows[1:], start=1):
-        text = ''.join(_cell_text(cell) for cell in row).strip()
-        if text and all(marker in text for marker in ('日期', '版本号', '发布说明', '编写者')):
-            continue
-        target_index = index
-        break
-    if len(rows[target_index]) < 4:
-        return
-    _set_cell_text(rows[target_index][0], run_date)
-    _set_cell_text(rows[target_index][1], version)
-    _set_cell_text(rows[target_index][2], release_note)
-    _set_cell_text(rows[target_index][3], author)
-
-
 def _fill_version_records(table: ET.Element, records: list[tuple[str, str, str, str]]) -> None:
     required_total_rows = max(2, len(records) + 1)
     _ensure_table_data_rows(table, required_total_rows)
+    _remove_table_vertical_merges(table)
+    _format_version_table(table)
     rows = _row_cells(table)
     for index, row in enumerate(rows[1:], start=0):
         values = records[index] if index < len(records) else ('', '', '', '')
         for col_index, value in enumerate(values[: len(row)]):
-            _set_cell_text(row[col_index], value)
+            _set_cell_text_centered(row[col_index], value)
+            _set_cell_solid_borders(row[col_index])
+
+
+def _remove_table_vertical_merges(table: ET.Element) -> None:
+    for cell in table.findall('.//w:tc', NS):
+        props = cell.find('w:tcPr', NS)
+        if props is None:
+            continue
+        for merge in props.findall('w:vMerge', NS):
+            props.remove(merge)
+
+
+def _format_version_table(table: ET.Element) -> None:
+    for cell in table.findall('.//w:tc', NS):
+        _set_cell_vertical_alignment(cell, 'center')
+        _set_cell_solid_borders(cell)
+        for paragraph in _paragraphs(cell):
+            _set_paragraph_alignment(paragraph, 'center')
 
 
 def _set_product_approval_table(root: ET.Element, rows_data: list[tuple[str, str]]) -> None:
@@ -233,6 +280,70 @@ def _find_direct_table_indices(root: ET.Element, *markers: str) -> list[int]:
         if all(marker in text for marker in markers):
             indices.append(index)
     return indices
+
+
+def _find_direct_tables(root: ET.Element, *markers: str) -> list[ET.Element]:
+    body = root.find('w:body', NS)
+    if body is None:
+        return []
+    tables: list[ET.Element] = []
+    for child in list(body):
+        if child.tag != _qn('tbl'):
+            continue
+        text = _table_text(child)
+        if all(marker in text for marker in markers):
+            tables.append(child)
+    return tables
+
+
+def _trim_blank_paragraphs_before_heading(root: ET.Element, heading_text: str, *, keep: int = 1) -> int:
+    body = root.find('w:body', NS)
+    if body is None:
+        return 0
+    children = list(body)
+    heading_index = next(
+        (
+            index
+            for index, child in enumerate(children)
+            if child.tag == _qn('p') and _paragraph_text(child) == heading_text
+        ),
+        None,
+    )
+    if heading_index is None:
+        return 0
+    blanks: list[ET.Element] = []
+    for child in reversed(children[:heading_index]):
+        if child.tag == _qn('p') and _paragraph_text(child) == '':
+            blanks.append(child)
+            continue
+        break
+    removable = blanks[keep:]
+    for child in removable:
+        body.remove(child)
+    return len(removable)
+
+
+def _remove_extra_direct_tables(root: ET.Element, *, markers: tuple[str, ...], keep_count: int) -> int:
+    body = root.find('w:body', NS)
+    if body is None:
+        return 0
+    tables = _find_direct_tables(root, *markers)
+    if len(tables) <= keep_count:
+        return 0
+    removed = 0
+    for table in tables[keep_count:]:
+        children = list(body)
+        try:
+            table_index = children.index(table)
+        except ValueError:
+            continue
+        if table_index + 1 < len(children):
+            sibling = children[table_index + 1]
+            if sibling.tag == _qn('p') and _paragraph_text(sibling) == '':
+                body.remove(sibling)
+        body.remove(table)
+        removed += 1
+    return removed
 
 
 def _ensure_repeated_tables_before_heading(root: ET.Element, *, markers: tuple[str, ...], required_count: int, stop_heading: str) -> None:
@@ -387,8 +498,8 @@ class CustomerDocData:
     module_name: str
     doc_number: str
     version_display: str
-    run_date_display: str
-    release_note: str
+    approval_rows: list[tuple[str, str]]
+    version_rows: list[tuple[str, str, str, str]]
     scenarios: list[CustomerScenario]
     requirement_rows: list[CustomerRequirementRow]
 
@@ -421,7 +532,6 @@ class ProductDocData:
     doc_number: str
     version_display: str
     run_date_display: str
-    release_note: str
     approval_rows: list[tuple[str, str]]
     version_rows: list[tuple[str, str, str, str]]
     module_description: str
@@ -439,18 +549,13 @@ def render_customer_doc(template_path: Path, output_path: Path, data: CustomerDo
         root = ET.fromstring(archive.read('word/document.xml'))
 
     _set_doc_number_table(root, data.doc_number)
+    _set_product_approval_table(root, data.approval_rows)
 
     _replace_direct_paragraph_text(root, 'XX模块', f'{data.module_name}模块')
 
     version_tables = _find_all_tables(root, '日期', '版本号', '发布说明', '编写者')
     if version_tables:
-        _fill_version_record(
-            version_tables[0],
-            run_date=data.run_date_display,
-            version=data.version_display,
-            release_note=data.release_note,
-            author='Claude',
-        )
+        _fill_version_records(version_tables[0], data.version_rows)
 
     scenario_count = max(1, len(data.scenarios))
     _ensure_repeated_tables_before_heading(
@@ -533,8 +638,14 @@ def render_product_doc(template_path: Path, output_path: Path, data: ProductDocD
     if not _replace_following_paragraph(root, '假设条件', data.assumptions):
         raise ValueError('failed to replace 假设条件 paragraph')
 
-    _ensure_repeated_tables_before_heading(root, markers=('模块名称', '功能描述：', '验收标准：'), required_count=len(data.requirements), stop_heading='模块新增非功能详述')
-    requirement_tables = _find_all_tables(root, '模块名称', '功能描述：', '验收标准：')
+    _trim_blank_paragraphs_before_heading(root, '模块描述', keep=1)
+    _trim_blank_paragraphs_before_heading(root, '模块新增功能需求', keep=1)
+    _trim_blank_paragraphs_before_heading(root, '模块新增非功能详述', keep=1)
+
+    requirement_markers = ('模块名称', '功能描述：', '验收标准：')
+    _ensure_repeated_tables_before_heading(root, markers=requirement_markers, required_count=len(data.requirements), stop_heading='模块新增非功能详述')
+    _remove_extra_direct_tables(root, markers=requirement_markers, keep_count=len(data.requirements))
+    requirement_tables = _find_all_tables(root, *requirement_markers)
     for index, table in enumerate(requirement_tables):
         cells = table.findall('.//w:tc', NS)
         if index < len(data.requirements):

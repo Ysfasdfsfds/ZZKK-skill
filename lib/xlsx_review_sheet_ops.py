@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from openpyxl.cell.cell import MergedCell
 from openpyxl import load_workbook
 from openpyxl.styles import Alignment
 
@@ -77,7 +78,7 @@ def render_product_review_sheet(
 def _write_review_plan(sheet, review_plan: ReviewPlan, *, owner: str, completion_date: str) -> None:
     _clear_issue_rows(sheet)
     for offset, issue in enumerate(review_plan.issues):
-        row = 13 + offset
+        row = _issue_row(sheet, offset)
         values = [
             issue.sequence,
             issue.document,
@@ -89,7 +90,7 @@ def _write_review_plan(sheet, review_plan: ReviewPlan, *, owner: str, completion
             issue.status,
         ]
         for column, value in zip([2, 3, 4, 5, 6, 9, 12, 13], values):
-            cell = sheet.cell(row=row, column=column)
+            cell = _writable_cell(sheet, row=row, column=column)
             cell.value = value
             cell.alignment = _WRAP_TOP
         sheet.row_dimensions[row].height = 78
@@ -115,7 +116,28 @@ def _write_review_plan(sheet, review_plan: ReviewPlan, *, owner: str, completion
 def _clear_issue_rows(sheet) -> None:
     for row in range(13, 23):
         for column in [2, 3, 4, 5, 6, 9, 12, 13]:
-            sheet.cell(row=row, column=column).value = None
+            cell = sheet.cell(row=row, column=column)
+            if not isinstance(cell, MergedCell):
+                cell.value = None
     for row in range(26, 29):
         for column in [2, 3, 6, 8, 10, 12]:
-            sheet.cell(row=row, column=column).value = None
+            cell = sheet.cell(row=row, column=column)
+            if not isinstance(cell, MergedCell):
+                cell.value = None
+
+
+def _issue_row(sheet, offset: int) -> int:
+    # Newer review templates merge each issue record across two rows.
+    if isinstance(sheet.cell(row=14, column=9), MergedCell):
+        return 13 + (offset * 2)
+    return 13 + offset
+
+
+def _writable_cell(sheet, *, row: int, column: int):
+    cell = sheet.cell(row=row, column=column)
+    if not isinstance(cell, MergedCell):
+        return cell
+    for merged_range in sheet.merged_cells.ranges:
+        if cell.coordinate in merged_range:
+            return sheet.cell(row=merged_range.min_row, column=merged_range.min_col)
+    return cell
